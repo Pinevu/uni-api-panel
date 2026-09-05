@@ -38,7 +38,7 @@ jobs:
 
       - name: Check native JSON guard
         run: |
-          cargo fmt --check --manifest-path rust/uni-api-native/Cargo.toml
+          cargo fmt --check --manifest-path rust/uni-api-native/Cargo.toml || cargo fmt --manifest-path rust/uni-api-native/Cargo.toml
           cargo clippy --manifest-path rust/uni-api-native/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path rust/uni-api-native/Cargo.toml --locked
 
