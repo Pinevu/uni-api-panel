@@ -1,0 +1,161 @@
+name: Docker Build and Publish API HUB Panel Image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  GHCR_IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  prepare:
+    name: Prepare release version
+    runs-on: ubuntu-24.04
+    outputs:
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bump version and publish release commit
+        id: release
+        shell: bash
+        run: |
+          git fetch origin main
+          git rebase origin/main
+          VERSION=$(grep '^version = ' pyproject.toml | awk -F'"' '{print $2}')
+          IFS='.' read -ra VERSION_PARTS <<< "$VERSION"
+          PATCH=$((VERSION_PARTS[2] + 1))
+          NEW_VERSION="${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$PATCH"
+          sed -i "s/^version = .*/version = \"$NEW_VERSION\"/" pyproject.toml
+          NEW_VERSION="$NEW_VERSION" python - <<'PY'
+          from pathlib import Path
+          import os
+          p = Path('uv.lock')
+          lines = p.read_text().splitlines()
+          in_pkg = False
+          for i, line in enumerate(lines):
+              if line == '[[package]]':
+                  in_pkg = False
+              elif line == 'name = "uni-api"':
+                  in_pkg = True
+              elif in_pkg and line.startswith('version = '):
+                  lines[i] = f'version = "{os.environ["NEW_VERSION"]}"'
+                  break
+          else:
+              raise SystemExit('uni-api package version not found in uv.lock')
+          p.write_text('\n'.join(lines) + '\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pyproject.toml uv.lock
+          git commit -m "chore: release $NEW_VERSION [skip ci]"
+          git push origin HEAD:main
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            platform_pair: linux-amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            platform_pair: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.release_sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push platform image by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: SOURCE_COMMIT=${{ needs.prepare.outputs.release_sha }}
+          tags: ${{ env.GHCR_IMAGE }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=api-hub-${{ matrix.platform_pair }}
+          cache-to: type=gha,mode=max,scope=api-hub-${{ matrix.platform_pair }},ignore-error=true
+      - name: Export platform digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${IMAGE_DIGEST#sha256:}"
+      - name: Upload platform digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.platform_pair }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish multi-platform manifest
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download platform digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish GHCR multi-platform manifest
+        working-directory: /tmp/digests
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          SOURCES=()
+          for digest_file in *; do
+            SOURCES+=("${GHCR_IMAGE}@sha256:${digest_file}")
+          done
+          docker buildx imagetools create \
+            --tag "${GHCR_IMAGE}:latest" \
+            --tag "${GHCR_IMAGE}:${VERSION}" \
+            "${SOURCES[@]}"
+      - name: Verify published platforms
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          platforms=$(docker buildx imagetools inspect "${GHCR_IMAGE}:${VERSION}" --raw | \
+            jq -r '.manifests[].platform | select(.os != "unknown") | "\(.os)/\(.architecture)"' | sort -u)
+          diff -u <(printf '%s\n' linux/amd64 linux/arm64) <(printf '%s\n' "$platforms")

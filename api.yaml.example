@@ -1,0 +1,27 @@
+# API HUB Panel 配置示例
+# 复制为 api.yaml 后填写自己的密钥：cp api.yaml.example api.yaml
+# 推荐通过环境变量引用密钥，避免将真实密钥提交到仓库。
+
+api_keys:
+  - api: ${ADMIN_API_KEY}
+    role: admin
+
+providers:
+  - provider: openai
+    base_url: https://api.openai.com/v1
+    api: ${OPENAI_API_KEY}
+    model:
+      - gpt-4o
+      # 为避免不同渠道模型同名，可使用别名映射：
+      # - gpt-4o: gpt-4o-openai
+
+# 示例：
+# providers:
+#   - provider: cpa
+#     base_url: https://example.com/v1
+#     api: ${CPA_API_KEY}
+#     model:
+#       - gpt-4o: gpt-4o-cpa
+# api_keys:
+#   - api: ${ADMIN_API_KEY}
+#     role: admin

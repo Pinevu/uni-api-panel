@@ -1,0 +1,25 @@
+# Local secrets and runtime data
+api.yaml
+.env
+.env.*
+data/
+uniapi_db/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Rust
+target/
+rust/uni-api-native/target/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Generated files
+*.log
+*.bak

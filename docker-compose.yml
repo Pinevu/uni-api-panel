@@ -1,0 +1,20 @@
+# API HUB Panel standalone build
+
+name: api-hub-panel
+
+services:
+  api-hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: api-hub-panel:local
+    container_name: api-hub-panel
+    restart: unless-stopped
+    ports:
+      - "3000:8000"
+    environment:
+      TZ: Asia/Shanghai
+      UNI_API_RUNTIME: rust
+    volumes:
+      - ./api.yaml:/home/api.yaml:ro
+      - ./data:/home/data

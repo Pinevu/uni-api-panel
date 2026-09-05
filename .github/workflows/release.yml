@@ -1,0 +1,35 @@
+name: Create API HUB Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create source archive
+        run: |
+          tar --exclude=.git --exclude=api.yaml --exclude='*.db' \
+            -czf api-hub-panel-${{ github.ref_name }}.tar.gz .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: API HUB Panel ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## API HUB Panel
+
+            Standalone multi-provider AI API gateway and management panel.
+
+            The archive contains source code and `api.yaml.example`; copy the
+            example to `api.yaml` and add your own secrets before deployment.
+          files: api-hub-panel-${{ github.ref_name }}.tar.gz
