@@ -213,7 +213,7 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_owned();
-            let mut url = base_url
+            let url = base_url
                 .trim_end_matches('/')
                 .replace("/chat/completions", "")
                 .replace("/completions", "")
@@ -677,6 +677,7 @@ fn binary_response(content_type: &'static str, value: &'static [u8]) -> Response
     (StatusCode::OK, [("content-type", content_type)], value).into_response()
 }
 
+#[allow(dead_code)]
 fn redirect_response(location: &str) -> Response<Body> {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::FOUND;
