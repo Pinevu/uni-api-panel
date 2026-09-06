@@ -1938,6 +1938,15 @@ async function loadOverview() {
 /* ==========================================================================
    PAGE 2: MONITOR
    ========================================================================== */
+function renderMonitorIp(item) {
+  const value = String(item?.ip || '').trim();
+  const normalized = value.toLowerCase();
+  if (!value || normalized === 'unknown' || normalized === 'null') {
+    return '<span class="ip-unknown">未识别 IP</span>';
+  }
+  return `<span class="mono">${esc(value)}</span>`;
+}
+
 async function loadMonitor() {
   try {
     const hours = +$('#monHoursSelect').value;
@@ -1981,7 +1990,7 @@ async function loadMonitor() {
             <table class="data-table">
               <thead><tr><th>IP 地址</th><th style="text-align:right">请求次数</th></tr></thead>
               <tbody>
-                ${ips.map(ip => `<tr><td class="mono" style="font-size:12.5px">${esc(ip.ip)}</td><td style="text-align:right;font-weight:600">${ip.count}</td></tr>`).join('')}
+                ${ips.map(ip => `<tr><td style="font-size:12.5px">${renderMonitorIp(ip)}</td><td style="text-align:right;font-weight:650;font-variant-numeric:tabular-nums">${Number(ip.count || 0).toLocaleString()}</td></tr>`).join('')}
               </tbody>
             </table>
           </div>
