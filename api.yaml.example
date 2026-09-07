@@ -10,6 +10,10 @@ providers:
   - provider: openai
     base_url: https://api.openai.com/v1
     api: ${OPENAI_API_KEY}
+    preferences:
+      headers:
+        X-Provider-Route: fast
+        X-Client-Version: api-hub-panel
     model:
       - gpt-4o
       # 为避免不同渠道模型同名，可使用别名映射：

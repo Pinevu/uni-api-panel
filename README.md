@@ -11,6 +11,7 @@
 - Token usage, provider success-rate and request-source monitoring
 - Rust native runtime with streaming and multiple provider adapters
 - Responsive PWA management panel with light and dark themes
+- Per-provider custom upstream headers
 
 This repository is standalone: it has no Git submodule, fork-sync workflow or runtime dependency on another fork. Container images are built by this repository and published to GitHub Container Registry.
 
@@ -26,6 +27,25 @@ docker compose -f docker-compose.release.yml up -d
 
 The panel listens on port `3000` by default. See [README_CN.md](./README_CN.md) for configuration and model-alias examples.
 
-## License
+## Per-provider custom headers
+
+The channel editor accepts one fixed upstream header per line in `Header-Name: value` format. The same setting can be written in `api.yaml`:
+
+```yaml
+providers:
+  - provider: openai
+    base_url: https://api.openai.com/v1
+    api: ${OPENAI_API_KEY}
+    preferences:
+      headers:
+        X-Provider-Route: fast
+        X-Client-Version: api-hub-panel
+    model:
+      - gpt-4o
+```
+
+These headers are added to requests sent to that provider. When a configured header has the same name as a built-in header, the provider configuration wins. Do not store real tokens, cookies, or other secrets in the repository.
+
+
 
 Apache License 2.0. See [LICENSE](./LICENSE).

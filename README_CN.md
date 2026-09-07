@@ -12,6 +12,7 @@
 - Token 用量统计、渠道成功率和请求来源监控
 - Rust 原生运行时，支持流式响应及多种上游协议
 - PWA 管理面板、响应式布局、亮色/暗色主题
+- 渠道级自定义请求头，可为每个上游单独附加 Header
 
 ## 独立性说明
 
@@ -71,7 +72,25 @@ docker build -t api-hub-panel:latest .
 docker compose -f docker-compose.release.yml up -d
 ```
 
-## 模型别名
+## 渠道自定义请求头
+
+可在管理面板的渠道编辑器中配置固定的上游请求头，每行一个 `Header-Name: value`。也可以直接写入配置文件：
+
+```yaml
+providers:
+  - provider: openai
+    base_url: https://api.openai.com/v1
+    api: ${OPENAI_API_KEY}
+    preferences:
+      headers:
+        X-Provider-Route: fast
+        X-Client-Version: api-hub-panel
+    model:
+      - gpt-4o
+```
+
+请求发送到该渠道时会附加这些 Header；同名的内置请求头会以渠道配置为准。不要在仓库中保存真实 Token、Cookie 或其他敏感值。
+
 
 在渠道的 `model` 或 `models` 列表中使用映射格式：
 

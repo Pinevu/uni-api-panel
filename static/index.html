@@ -1549,6 +1549,15 @@ body {
       <input class="modal-input mono" id="chKey" type="text" placeholder="sk-... 或留空">
     </div>
 
+    <div class="form-group">
+      <label class="form-label">
+        <span>自定义请求头</span>
+        <span style="font-size:11px;color:var(--text-muted);font-weight:500">每行一个：Header-Name: value</span>
+      </label>
+      <textarea class="modal-input mono" id="chHeaders" rows="3" placeholder="例如：\nX-Provider-Route: fast\nX-Client-Version: 1.0\nAuthorization: Bearer ${TOKEN}"></textarea>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:5px">请求发送到此渠道时附加；同名内置请求头会以此处配置为准。</div>
+    </div>
+
     <!-- Models Config Section -->
     <div class="form-group" style="margin-top:20px;border-top:1px solid var(--border-light);padding-top:16px">
       <div class="form-label">
@@ -1683,6 +1692,40 @@ let chAllModels = [];
 let chSelectedSet = new Set();
 let chAliasMap = {}; // { [upstream_model]: custom_alias }
 let chSelectionInitialized = false; // 是否已有明确的模型选择意图
+let chCustomHeaders = {}; // 当前渠道的固定上游请求头
+
+function parseCustomHeaders(text) {
+  const headers = {};
+  String(text || '').split(/\r?\n/).forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const separator = trimmed.indexOf(':');
+    if (separator <= 0) return;
+    const name = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim();
+    if (name && value) headers[name] = value;
+  });
+  return headers;
+}
+
+function formatCustomHeaders(headers) {
+  return Object.entries(headers || {}).map(([name, value]) => `${name}: ${value}`).join('\\n');
+}
+
+function setChannelCustomHeaders(headers) {
+  chCustomHeaders = {};
+  Object.entries(headers || {}).forEach(([name, value]) => {
+    const key = String(name || '').trim();
+    const val = String(value ?? '').trim();
+    if (key && val) chCustomHeaders[key] = val;
+  });
+  $('#chHeaders').value = formatCustomHeaders(chCustomHeaders);
+}
+
+function updateChannelCustomHeaders() {
+  chCustomHeaders = parseCustomHeaders($('#chHeaders').value);
+  $('#chHeaders').value = formatCustomHeaders(chCustomHeaders);
+}
 
 /* ===== 模型项通用解析器 (支持字符串或 { upstream: alias } 映射对象) ===== */
 function parseModelItem(item) {
@@ -2176,8 +2219,8 @@ function openChannelEditor(i) {
   $('#chSearchModel').value = '';
   $('#chManualWrap').style.display = 'none';
   chAliasMap = {};
-
-  if (isNew) {
+  chCustomHeaders = {};
+  $('#chHeaders').value = '';
     $('#chName').value = '';
     $('#chUrl').value = '';
     $('#chKey').value = '';
@@ -2191,6 +2234,7 @@ function openChannelEditor(i) {
     $('#chName').value = p.provider || '';
     $('#chUrl').value = p.base_url || '';
     $('#chKey').value = p.api || '';
+    setChannelCustomHeaders(p.preferences?.headers || p.headers || {});
     const rawList = p.models || p.model || [];
     chAllModels = [];
     chSelectedSet = new Set();
@@ -2443,6 +2487,7 @@ function saveChannel() {
   const name = $('#chName').value.trim();
   const url = $('#chUrl').value.trim();
   const key = $('#chKey').value.trim();
+  updateChannelCustomHeaders();
 
   const models = [...chSelectedSet].map(m => {
     const alias = (chAliasMap[m] || '').trim();
@@ -2456,7 +2501,27 @@ function saveChannel() {
   if (!url) return showToast('请填写 API Base URL');
 
   const idx = +$('#chModal').dataset.index;
-  const provider = { provider: name, base_url: url, api: key, models, model: models };
+  const previous = idx >= 0 ? (configData.providers[idx] || {}) : {};
+  const preferences = { ...(previous.preferences || {}) };
+  if (Object.keys(chCustomHeaders).length > 0) {
+    preferences.headers = { ...chCustomHeaders };
+  } else {
+    delete preferences.headers;
+  }
+  const provider = {
+    ...previous,
+    provider: name,
+    base_url: url,
+    api: key,
+    models,
+    model: models
+  };
+  delete provider.headers;
+  if (Object.keys(preferences).length > 0) {
+    provider.preferences = preferences;
+  } else {
+    delete provider.preferences;
+  }
 
   if (!configData) configData = { providers: [], api_keys: [] };
   if (!configData.providers) configData.providers = [];
