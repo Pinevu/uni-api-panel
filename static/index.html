@@ -2221,6 +2221,8 @@ function openChannelEditor(i) {
   chAliasMap = {};
   chCustomHeaders = {};
   $('#chHeaders').value = '';
+
+  if (isNew) {
     $('#chName').value = '';
     $('#chUrl').value = '';
     $('#chKey').value = '';
