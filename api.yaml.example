@@ -14,6 +14,9 @@ providers:
       headers:
         X-Provider-Route: fast
         X-Client-Version: api-hub-panel
+      # 仅在已确认上游支持 Prompt Cache 时开启。
+      # prompt_cache_affinity: true
+      # prompt_cache_retention: 24h
     model:
       - gpt-4o
       # 为避免不同渠道模型同名，可使用别名映射：

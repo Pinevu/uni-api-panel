@@ -46,6 +46,24 @@ providers:
 
 These headers are added to requests sent to that provider. When a configured header has the same name as a built-in header, the provider configuration wins. Do not store real tokens, cookies, or other secrets in the repository.
 
+## Prompt cache affinity
 
+For upstreams verified to support prompt caching, enable **Prompt Cache Affinity** in the channel editor. It does not cache or replay model answers. Instead, it adds a stable `prompt_cache_key` for the same client/model and keeps multi-key traffic on one healthy upstream key until that key cools down.
+
+```yaml
+providers:
+  - provider: cpa
+    base_url: https://example.com/v1
+    api: ${CPA_API_KEY}
+    preferences:
+      prompt_cache_affinity: true
+      prompt_cache_retention: 24h
+    model:
+      - gpt-5.6-luna
+```
+
+The feature is disabled by default. Use it only with upstreams that accept the relevant cache fields; short prompts may legitimately report zero cached tokens.
+
+## License
 
 Apache License 2.0. See [LICENSE](./LICENSE).

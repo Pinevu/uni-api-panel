@@ -933,6 +933,24 @@ impl NativeConfigStore {
             return ProviderKeySelection::ChannelCooling;
         }
         let cooldowns = self.key_cooldowns.lock().await;
+        let cache_affinity = provider
+            .preferences
+            .get("prompt_cache_affinity")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if cache_affinity {
+            // Keep prompt-cache traffic on the first healthy credential. This
+            // maximizes upstream cache locality; cooled keys are still skipped.
+            for key in provider.api_keys.iter() {
+                if cooldowns
+                    .get(&(provider.name.to_string(), key.clone()))
+                    .is_none_or(|until| *until <= now)
+                {
+                    return ProviderKeySelection::Selected(key.clone());
+                }
+            }
+            return ProviderKeySelection::AllKeysCooling;
+        }
         for _ in 0..provider.api_keys.len() {
             let index = provider.cursor.fetch_add(1, Ordering::Relaxed) % provider.api_keys.len();
             let key = provider.api_keys[index].clone();
@@ -1201,6 +1219,7 @@ impl NativeRoute {
             compile_payload(
                 &mut payload,
                 &provider,
+                &self.request_headers,
                 &self.request_model,
                 &original_model,
                 &engine,
@@ -2599,6 +2618,7 @@ fn parse_byte_limit(value: &Value) -> Option<u64> {
 fn compile_payload(
     payload: &mut Value,
     provider: &Provider,
+    incoming_headers: &HeaderMap,
     request_model: &str,
     original_model: &str,
     engine: &str,
@@ -2608,6 +2628,7 @@ fn compile_payload(
         .as_object_mut()
         .ok_or_else(|| "native Responses payload is not an object".to_owned())?;
     root.insert("model".into(), Value::String(original_model.to_owned()));
+    apply_prompt_cache_affinity(root, provider, incoming_headers, request_model, engine);
     if engine == "codex" {
         for key in [
             "previous_response_id",
@@ -2630,6 +2651,80 @@ fn compile_payload(
         normalize_response_root(root)?;
     }
     Ok(())
+}
+
+pub(crate) fn apply_prompt_cache_affinity(
+    root: &mut Map<String, Value>,
+    provider: &Provider,
+    incoming: &HeaderMap,
+    request_model: &str,
+    engine: &str,
+) {
+    // Prompt caching is upstream-specific. It is opt-in per provider so an
+    // unsupported gateway never receives unexpected cache parameters.
+    let enabled = provider
+        .preferences
+        .get("prompt_cache_affinity")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !enabled || !matches!(engine, "gpt" | "openrouter" | "azure" | "azure-databricks") {
+        return;
+    }
+    if root
+        .get("prompt_cache_key")
+        .and_then(Value::as_str)
+        .is_some_and(|key| !key.trim().is_empty())
+    {
+        return;
+    }
+
+    let client_scope = extract_api_key(incoming)
+        .map(|key| format!("client:{key}"))
+        .unwrap_or_else(|| "client:anonymous".into());
+    let conversation_scope = incoming
+        .get("x-prompt-cache-key")
+        .or_else(|| incoming.get("x-session-id"))
+        .or_else(|| incoming.get("session-id"))
+        .or_else(|| incoming.get("conversation-id"))
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("default");
+    let scope = format!("provider:{}\0{client_scope}\0{conversation_scope}", provider.name);
+    root.insert(
+        "prompt_cache_key".into(),
+        Value::String(stable_prompt_cache_key(&scope, request_model)),
+    );
+    if let Some(retention) = provider
+        .preferences
+        .get("prompt_cache_retention")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+    {
+        root.entry("prompt_cache_retention".into())
+            .or_insert_with(|| Value::String(retention.to_owned()));
+    }
+}
+
+fn stable_prompt_cache_key(scope: &str, request_model: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"uni-api-prompt-cache-v1\0");
+    hasher.update(scope.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(request_model.as_bytes());
+    let digest = hasher.finalize();
+    format!("uac-{}", hex_prefix(&digest, 24))
+}
+
+fn hex_prefix(bytes: &[u8], length: usize) -> String {
+    let mut output = String::with_capacity(length);
+    for byte in bytes {
+        if output.len() >= length {
+            break;
+        }
+        output.push_str(&format!("{byte:02x}"));
+    }
+    output.truncate(length);
+    output
 }
 
 pub(crate) fn apply_overrides(
@@ -3674,6 +3769,28 @@ mod tests {
     }
 
     #[test]
+    fn prompt_cache_affinity_uses_client_scoped_stable_key() {
+        let mut provider = provider();
+        provider.engine = Arc::from("gpt");
+        provider.preferences = Arc::new(Map::from_iter([(
+            "prompt_cache_affinity".into(),
+            Value::Bool(true),
+        )]));
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", HeaderValue::from_static("Bearer client-a"));
+        let mut first = Map::new();
+        let mut second = Map::new();
+        apply_prompt_cache_affinity(&mut first, &provider, &headers, "gpt-public", "gpt");
+        apply_prompt_cache_affinity(&mut second, &provider, &headers, "gpt-public", "gpt");
+        assert_eq!(first["prompt_cache_key"], second["prompt_cache_key"]);
+
+        headers.insert("authorization", HeaderValue::from_static("Bearer client-b"));
+        let mut other = Map::new();
+        apply_prompt_cache_affinity(&mut other, &provider, &headers, "gpt-public", "gpt");
+        assert_ne!(first["prompt_cache_key"], other["prompt_cache_key"]);
+    }
+
+    #[test]
     fn payload_compiler_matches_codex_contract_without_double_json_envelope() {
         let provider = provider();
         let mut payload = json!({
@@ -3687,6 +3804,7 @@ mod tests {
         compile_payload(
             &mut payload,
             &provider,
+            &HeaderMap::new(),
             "gpt-public",
             "gpt-upstream",
             "codex",

@@ -27,8 +27,9 @@ use crate::proxy::{
 use crate::request_spool::{SpoolObservation, StoredBody};
 use crate::resources::MemoryReservation;
 use crate::responses_native::{
-    apply_overrides, classify_provider_failure, compute_retry_count, extract_api_key, request_id,
-    FailedRoute, Provider, ProviderKeySelection, CODEX_USER_AGENT,
+    apply_overrides, apply_prompt_cache_affinity, classify_provider_failure,
+    compute_retry_count, extract_api_key, request_id, FailedRoute, Provider,
+    ProviderKeySelection, CODEX_USER_AGENT,
 };
 
 const ALPHA_SEARCH_ENDPOINT: &str = "/v1/alpha/search";
@@ -1472,6 +1473,7 @@ fn build_attempt(
         if is_alpha_search {
             sanitize_alpha_search_payload(root);
         } else {
+            apply_prompt_cache_affinity(root, provider, incoming_headers, request_model, &engine);
             apply_overrides(root, provider, request_model);
             if path == "/v1/responses/compact" {
                 root.remove("store");
@@ -2484,6 +2486,8 @@ fn responses_to_chat_request(input: &Value, original_model: &str) -> Result<Valu
         "audio",
         "metadata",
         "user",
+        "prompt_cache_key",
+        "prompt_cache_retention",
     ] {
         if let Some(value) = root.get(name) {
             output.insert(name.into(), value.clone());
@@ -2631,6 +2635,8 @@ fn chat_to_responses(input: &Value, original_model: &str) -> Result<Value, Strin
         "reasoning",
         "parallel_tool_calls",
         "service_tier",
+        "prompt_cache_key",
+        "prompt_cache_retention",
     ] {
         if let Some(value) = root.get(name) {
             output.insert(name.into(), value.clone());
@@ -5245,6 +5251,19 @@ mod tests {
         assert_eq!(output["max_output_tokens"], 42);
         assert_eq!(output["stream"], false);
         assert_eq!(output["input"][1]["content"][0]["type"], "input_text");
+    }
+
+    #[test]
+    fn chat_to_responses_preserves_prompt_cache_fields() {
+        let input = json!({
+            "model":"gpt-public",
+            "messages":[{"role":"user","content":"hello"}],
+            "prompt_cache_key":"client-cache-key",
+            "prompt_cache_retention":"24h"
+        });
+        let output = chat_to_responses(&input, "gpt-upstream").unwrap();
+        assert_eq!(output["prompt_cache_key"], "client-cache-key");
+        assert_eq!(output["prompt_cache_retention"], "24h");
     }
 
     #[test]

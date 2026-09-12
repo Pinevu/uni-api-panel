@@ -91,6 +91,25 @@ providers:
 
 请求发送到该渠道时会附加这些 Header；同名的内置请求头会以渠道配置为准。不要在仓库中保存真实 Token、Cookie 或其他敏感值。
 
+## Prompt Cache 亲和
+
+对已确认支持 Prompt Cache 的上游渠道，可在渠道编辑器开启「Prompt Cache 亲和」。它**不会缓存或复用模型回答**，只会为同一客户端与模型提供稳定的 `prompt_cache_key`，并在多上游 Key 时优先保持同一个健康 Key；冷却时仍会自动切换。
+
+```yaml
+providers:
+  - provider: cpa
+    base_url: https://example.com/v1
+    api: ${CPA_API_KEY}
+    preferences:
+      prompt_cache_affinity: true
+      prompt_cache_retention: 24h
+    model:
+      - gpt-5.6-luna
+```
+
+客户端也可通过 `X-Prompt-Cache-Key`、`X-Session-Id` 或 `Conversation-Id` 指定自己的缓存域。默认关闭；短 Prompt 达不到上游最小缓存长度时，`cached_tokens: 0` 属正常现象。
+
+## 模型别名
 
 在渠道的 `model` 或 `models` 列表中使用映射格式：
 

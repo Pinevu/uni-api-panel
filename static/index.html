@@ -1558,6 +1558,26 @@ body {
       <div style="font-size:11px;color:var(--text-muted);margin-top:5px">请求发送到此渠道时附加；同名内置请求头会以此处配置为准。</div>
     </div>
 
+    <div class="form-group" style="padding:10px 12px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-md)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div>
+          <div style="font-size:13px;font-weight:650;color:var(--text-primary)">Prompt Cache 亲和</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">稳定缓存键与上游 Key 亲和；仅为确认兼容的渠道开启。</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;white-space:nowrap;font-size:12px;font-weight:600;color:var(--text-secondary)">
+          <input id="chPromptCacheAffinity" type="checkbox" onchange="syncPromptCacheControls()" style="width:17px;height:17px;accent-color:var(--primary)">
+          启用
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px">
+        <span style="font-size:11px;color:var(--text-muted)">缓存保留期（上游支持时才发送）</span>
+        <select class="filter-select" id="chPromptCacheRetention" style="padding:4px 26px 4px 8px;font-size:11.5px;min-width:100px">
+          <option value="">不指定</option>
+          <option value="24h">24 小时</option>
+        </select>
+      </div>
+    </div>
+
     <!-- Models Config Section -->
     <div class="form-group" style="margin-top:20px;border-top:1px solid var(--border-light);padding-top:16px">
       <div class="form-label">
@@ -1725,6 +1745,19 @@ function setChannelCustomHeaders(headers) {
 function updateChannelCustomHeaders() {
   chCustomHeaders = parseCustomHeaders($('#chHeaders').value);
   $('#chHeaders').value = formatCustomHeaders(chCustomHeaders);
+}
+
+function setPromptCacheAffinity(preferences = {}) {
+  const enabled = preferences.prompt_cache_affinity === true;
+  $('#chPromptCacheAffinity').checked = enabled;
+  $('#chPromptCacheRetention').value = enabled ? (preferences.prompt_cache_retention || '') : '';
+  syncPromptCacheControls();
+}
+
+function syncPromptCacheControls() {
+  const enabled = $('#chPromptCacheAffinity').checked;
+  $('#chPromptCacheRetention').disabled = !enabled;
+  $('#chPromptCacheRetention').style.opacity = enabled ? '1' : '0.5';
 }
 
 /* ===== 模型项通用解析器 (支持字符串或 { upstream: alias } 映射对象) ===== */
@@ -2135,6 +2168,8 @@ async function loadChannels() {
     let html = '';
     providers.forEach((p, i) => {
       const models = p.models || p.model || [];
+      const cacheEnabled = p.preferences?.prompt_cache_affinity === true;
+      const cacheRetention = p.preferences?.prompt_cache_retention || '';
       const maskedKey = p.api ? p.api.slice(0, 8) + '...' + p.api.slice(-4) : '(无密钥/留空)';
       const showLimit = 12;
       const hasMore = models.length > showLimit;
@@ -2146,6 +2181,7 @@ async function loadChannels() {
             <div class="ch-name-row">
               <span class="key-dot"></span>
               <span class="ch-name">${esc(p.provider || 'Provider ' + (i + 1))}</span>
+              ${cacheEnabled ? `<span class="tag green" title="Prompt Cache 亲和已开启">缓存亲和${cacheRetention ? ` · ${esc(cacheRetention)}` : ''}</span>` : ''}
             </div>
             <div class="ch-actions">
               <div class="ch-toggle" onclick="toggleChBody(this)">
@@ -2221,6 +2257,7 @@ function openChannelEditor(i) {
   chAliasMap = {};
   chCustomHeaders = {};
   $('#chHeaders').value = '';
+  setPromptCacheAffinity({});
 
   if (isNew) {
     $('#chName').value = '';
@@ -2237,6 +2274,7 @@ function openChannelEditor(i) {
     $('#chUrl').value = p.base_url || '';
     $('#chKey').value = p.api || '';
     setChannelCustomHeaders(p.preferences?.headers || p.headers || {});
+    setPromptCacheAffinity(p.preferences || {});
     const rawList = p.models || p.model || [];
     chAllModels = [];
     chSelectedSet = new Set();
@@ -2509,6 +2547,18 @@ function saveChannel() {
     preferences.headers = { ...chCustomHeaders };
   } else {
     delete preferences.headers;
+  }
+  if ($('#chPromptCacheAffinity').checked) {
+    preferences.prompt_cache_affinity = true;
+    const retention = $('#chPromptCacheRetention').value.trim();
+    if (retention) {
+      preferences.prompt_cache_retention = retention;
+    } else {
+      delete preferences.prompt_cache_retention;
+    }
+  } else {
+    delete preferences.prompt_cache_affinity;
+    delete preferences.prompt_cache_retention;
   }
   const provider = {
     ...previous,
