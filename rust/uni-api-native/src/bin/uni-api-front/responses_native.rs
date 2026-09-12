@@ -2700,7 +2700,7 @@ pub(crate) fn apply_prompt_cache_affinity(
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
     {
-        root.entry("prompt_cache_retention".into())
+        root.entry("prompt_cache_retention")
             .or_insert_with(|| Value::String(retention.to_owned()));
     }
 }
