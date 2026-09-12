@@ -442,9 +442,11 @@ body {
 }
 
 .btn-sm {
-  padding: 5px 11px;
+  padding: 4.5px 10px;
   font-size: 12px;
   border-radius: var(--radius-sm);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .btn-danger {
@@ -655,12 +657,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
 }
 
 .ch-name-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .key-dot {
@@ -669,19 +676,46 @@ body {
   border-radius: 50%;
   background: var(--success);
   box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+  flex-shrink: 0;
 }
 
 .ch-name {
-  font-size: 15.5px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+}
+
+.ch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1.5px 7px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.35;
+  border: 1px solid transparent;
+}
+
+.ch-badge.green {
+  background: var(--success-light);
+  color: var(--success);
+  border-color: rgba(16, 185, 129, 0.2);
 }
 
 .ch-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .ch-meta-box {
@@ -737,21 +771,29 @@ body {
 
 /* Channel collapse toggle */
 .ch-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   cursor: pointer;
   user-select: none;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 550;
-  padding: 4px 8px;
+  padding: 4px 6px;
   border-radius: var(--radius-sm);
   transition: var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: transparent;
 }
-.ch-toggle:hover {
-  color: var(--text-primary);
-  background: var(--bg-subtle);
+.ch-toggle span {
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .ch-toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-subtle);
+  }
 }
 .ch-toggle svg {
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1356,7 +1398,13 @@ body {
   .metric-card { padding: 14px 15px; }
   .metric-value { font-size: 23px; }
   .chart-card { padding: 14px 16px; }
-  .ch-card, .key-card { padding: 14px 15px; }
+  .ch-card, .key-card { padding: 12px 13px; }
+  .ch-top { gap: 6px; }
+  .ch-name { font-size: 14px; }
+  .ch-actions { gap: 4px; }
+  .ch-toggle { padding: 3px 5px; font-size: 11px; }
+  .ch-badge { padding: 1px 6px; font-size: 10.5px; }
+  .btn-sm { padding: 3.5px 7px; font-size: 11.5px; }
   .modal { padding: 18px 16px; border-radius: var(--radius-lg); }
 }
 </style>
@@ -2180,8 +2228,8 @@ async function loadChannels() {
           <div class="ch-top">
             <div class="ch-name-row">
               <span class="key-dot"></span>
-              <span class="ch-name">${esc(p.provider || 'Provider ' + (i + 1))}</span>
-              ${cacheEnabled ? `<span class="tag green" title="Prompt Cache 亲和已开启">缓存亲和${cacheRetention ? ` · ${esc(cacheRetention)}` : ''}</span>` : ''}
+              <span class="ch-name" title="${esc(p.provider || '')}">${esc(p.provider || 'Provider ' + (i + 1))}</span>
+              ${cacheEnabled ? `<span class="ch-badge green" title="Prompt Cache 亲和已开启 (${esc(cacheRetention || '默认')})">缓存${cacheRetention ? ` · ${esc(cacheRetention)}` : ''}</span>` : ''}
             </div>
             <div class="ch-actions">
               <div class="ch-toggle" onclick="toggleChBody(this)">
@@ -2205,6 +2253,11 @@ async function loadChannels() {
               <span class="ch-meta-label">API Key</span>
               <span class="ch-meta-val">${esc(maskedKey)} ${p.api ? `<button class="key-copy" onclick="copyText('${esc(p.api)}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ''}</span>
             </div>
+            ${cacheEnabled ? `
+            <div class="ch-meta-row">
+              <span class="ch-meta-label">Prompt Cache</span>
+              <span class="ch-meta-val" style="color:var(--success);font-weight:600">已开启 (${esc(cacheRetention || '默认')})</span>
+            </div>` : ''}
           </div>
 
           <div class="ch-models-header">
