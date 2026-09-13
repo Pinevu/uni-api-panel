@@ -536,6 +536,159 @@ body {
 /* ==========================================================================
    Usage Cards & Breakdown
    ========================================================================== */
+.key-usage-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  margin-bottom: 14px;
+  transition: var(--transition);
+}
+.key-usage-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-focus);
+}
+.key-usage-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.key-usage-identity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+.key-usage-prefix {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 750;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.key-usage-role {
+  font-size: 10.5px;
+  font-weight: 650;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.key-usage-role.admin {
+  background: rgba(129, 140, 248, 0.15);
+  color: var(--primary);
+  border: 1px solid rgba(129, 140, 248, 0.25);
+}
+.key-usage-role.user {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.key-usage-stat-pill {
+  text-align: right;
+  flex-shrink: 0;
+}
+.key-usage-total {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.key-usage-pct {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 550;
+}
+.key-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+}
+.key-metric-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.key-metric-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.key-metric-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.key-models-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.key-model-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.key-model-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.key-model-name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+.key-model-stat {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.key-model-stat b {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+.key-models-toggle {
+  align-self: center;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--primary);
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-light);
+  font-weight: 600;
+  transition: var(--transition);
+}
+.key-models-toggle:hover {
+  opacity: 0.85;
+}
+
 .usage-item-card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
@@ -2358,12 +2511,49 @@ function renderUsageFiltered() {
     return;
   }
 
-  // 1. 汇总指标计算
-  const totalTokens = usage.reduce((s, u) => s + (u.total_tokens || 0), 0);
-  const totalReqs = usage.reduce((s, u) => s + (u.request_count || 0), 0);
-  const modelSet = new Set(usage.map(u => u.model)).size;
+  if (!usage.length) {
+    $('#usageContent').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">未找到匹配的用量数据</div>';
+    return;
+  }
 
-  // 2. 按模型聚合统计（计算各模型总消耗与占比）
+  // 1. 全局汇总指标计算
+  const totalTokens = usage.reduce((s, u) => s + (u.total_tokens || 0), 0);
+  const totalPrompt = usage.reduce((s, u) => s + (u.total_prompt_tokens || 0), 0);
+  const totalComp = usage.reduce((s, u) => s + (u.total_completion_tokens || 0), 0);
+  const totalReqs = usage.reduce((s, u) => s + (u.request_count || 0), 0);
+  const keySet = new Set(usage.map(u => u.api_key_prefix || '未知 Key'));
+  const modelSet = new Set(usage.map(u => u.model || 'unknown'));
+
+  // 2. 按 API Key 聚合统计
+  const keyAggMap = {};
+  usage.forEach(u => {
+    const k = u.api_key_prefix || '未知 Key';
+    if (!keyAggMap[k]) {
+      keyAggMap[k] = {
+        total_tokens: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        request_count: 0,
+        models: {}
+      };
+    }
+    const m = u.model || 'unknown';
+    const tok = u.total_tokens || 0;
+    const req = u.request_count || 0;
+    keyAggMap[k].total_tokens += tok;
+    keyAggMap[k].prompt_tokens += (u.total_prompt_tokens || 0);
+    keyAggMap[k].completion_tokens += (u.total_completion_tokens || 0);
+    keyAggMap[k].request_count += req;
+
+    if (!keyAggMap[k].models[m]) {
+      keyAggMap[k].models[m] = { tokens: 0, requests: 0 };
+    }
+    keyAggMap[k].models[m].tokens += tok;
+    keyAggMap[k].models[m].requests += req;
+  });
+  const sortedKeys = Object.entries(keyAggMap).sort((a, b) => b[1].total_tokens - a[1].total_tokens);
+
+  // 3. 按模型聚合统计（计算各模型总消耗与占比）
   const modelAggMap = {};
   usage.forEach(u => {
     const m = u.model || 'unknown';
@@ -2377,11 +2567,117 @@ function renderUsageFiltered() {
 
   let html = '';
 
-  // (1) 模型用量占比分析排行榜 (Breakdown)
+  // (0) 顶部指标看板卡片 (Metrics Grid)
+  html += `
+    <div class="metrics" style="margin-bottom:14px">
+      <div class="metric-card">
+        <div class="metric-title">总消耗 TOKENS</div>
+        <div class="metric-value">${fmtShort(totalTokens)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">总调用次数</div>
+        <div class="metric-value">${fmtShort(totalReqs)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">输入 / 输出</div>
+        <div class="metric-value sm">${fmtShort(totalPrompt)}<span class="sep">/</span>${fmtShort(totalComp)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">活跃 KEY / 模型</div>
+        <div class="metric-value sm">${keySet.size}<span class="sep">/</span>${modelSet.size}</div>
+      </div>
+    </div>`;
+
+  // (1) 核心模块：按 API Key 详细用量卡片
+  if (sortedKeys.length > 0) {
+    html += `
+      <div style="margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+          <span>🔑 各 API Key 用量统计 (${sortedKeys.length})</span>
+        </div>`;
+
+    sortedKeys.forEach(([keyPrefix, d], keyIdx) => {
+      const keyPct = totalTokens > 0 ? ((d.total_tokens / totalTokens) * 100).toFixed(1) : '0.0';
+      const keyModels = Object.entries(d.models).sort((a, b) => b[1].tokens - a[1].tokens);
+      const isShortList = keyModels.length <= 4;
+      const visibleLimit = 4;
+
+      // 匹配 key 角色
+      const cfg = (configData?.api_keys || []).find(a => {
+        const p = a.api && (a.api.length > 16 ? a.api.slice(0, 8) + '...' + a.api.slice(-4) : a.api);
+        return p === keyPrefix || a.api === keyPrefix;
+      });
+      const role = cfg?.role || (keyPrefix.startsWith('uh_') ? 'admin' : 'user');
+      const roleLabel = role.toLowerCase() === 'admin' ? '管理员' : '客户端 Key';
+      const roleClass = role.toLowerCase() === 'admin' ? 'admin' : 'user';
+
+      html += `
+        <div class="key-usage-card">
+          <div class="key-usage-top">
+            <div class="key-usage-identity">
+              <span class="key-dot" style="background:var(--primary)"></span>
+              <span class="key-usage-prefix">${esc(keyPrefix)}</span>
+              <span class="key-usage-role ${roleClass}">${roleLabel}</span>
+            </div>
+            <div class="key-usage-stat-pill">
+              <div class="key-usage-total">${fmtShort(d.total_tokens)}</div>
+              <div class="key-usage-pct">${keyPct}% 总占比</div>
+            </div>
+          </div>
+
+          <div class="progress-bar-wrap" style="margin-bottom:10px">
+            <div class="progress-bar-fill" style="width:${Math.max(2, keyPct)}%"></div>
+          </div>
+
+          <div class="key-usage-metrics">
+            <div class="key-metric-cell">
+              <span class="key-metric-label">输入 Tokens</span>
+              <span class="key-metric-val">${fmtShort(d.prompt_tokens)}</span>
+            </div>
+            <div class="key-metric-cell">
+              <span class="key-metric-label">输出 Tokens</span>
+              <span class="key-metric-val">${fmtShort(d.completion_tokens)}</span>
+            </div>
+            <div class="key-metric-cell">
+              <span class="key-metric-label">请求次数</span>
+              <span class="key-metric-val">${Number(d.request_count || 0).toLocaleString()} 次</span>
+            </div>
+          </div>
+
+          <div class="key-models-box">
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-muted);font-weight:600">
+              <span>调用模型明细 (${keyModels.length} 个)</span>
+              <span>Tokens / 占比</span>
+            </div>
+            ${keyModels.map(([mName, mData], mIdx) => {
+              const mPct = d.total_tokens > 0 ? ((mData.tokens / d.total_tokens) * 100).toFixed(1) : '0.0';
+              const isExtra = mIdx >= visibleLimit;
+              return `
+                <div class="key-model-item ${isExtra ? 'key-model-extra' : ''}" style="${isExtra ? 'display:none' : ''}">
+                  <div class="key-model-header">
+                    <span class="key-model-name" title="${esc(mName)}">${esc(mName)}</span>
+                    <span class="key-model-stat"><b>${fmtShort(mData.tokens)}</b> (${mPct}%) · ${mData.requests}次</span>
+                  </div>
+                  <div class="progress-bar-wrap" style="height:4px;margin-top:2px">
+                    <div class="progress-bar-fill" style="width:${Math.max(2, mPct)}%;background:var(--primary)"></div>
+                  </div>
+                </div>`;
+            }).join('')}
+            ${!isShortList ? `
+              <div class="key-models-toggle" onclick="toggleKeyUsageModels(this)" data-expanded="false" data-more-text="+${keyModels.length - visibleLimit} 更多模型...">
+                +${keyModels.length - visibleLimit} 更多模型...
+              </div>` : ''}
+          </div>
+        </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // (2) 全站各模型汇总消耗排行榜
   if (sortedModels.length > 0) {
     html += `
       <div class="chart-card" style="margin-bottom:14px">
-        <div class="chart-title">各模型消耗占比与分布</div>
+        <div class="chart-title">📊 全站模型消耗排行榜</div>
         <div style="display:flex;flex-direction:column;gap:12px">
           ${sortedModels.map(([modelName, d]) => {
             const pct = totalTokens > 0 ? ((d.tokens / totalTokens) * 100).toFixed(1) : '0.0';
@@ -2406,6 +2702,15 @@ function renderUsageFiltered() {
   }
 
   $('#usageContent').innerHTML = html;
+}
+
+function toggleKeyUsageModels(btn) {
+  const box = btn.closest('.key-models-box');
+  const hidden = box.querySelectorAll('.key-model-extra');
+  const isExpanded = btn.dataset.expanded === 'true';
+  hidden.forEach(el => el.style.display = isExpanded ? 'none' : 'flex');
+  btn.dataset.expanded = isExpanded ? 'false' : 'true';
+  btn.textContent = isExpanded ? btn.dataset.moreText : '收起模型明细';
 }
 
 /* ==========================================================================
