@@ -683,6 +683,7 @@ fn compile_provider(value: &Value) -> Option<Value> {
             item.get("exclude_request_rules"),
             preferences.get("exclude_request_rules"),
         ),
+        "image": item.get("image").cloned().unwrap_or(Value::Bool(true)),
     }))
 }
 

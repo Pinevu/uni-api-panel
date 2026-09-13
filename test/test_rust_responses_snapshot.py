@@ -19,6 +19,7 @@ def _config():
                 "engine": "codex",
                 "api": ["provider-key-1", "provider-key-2"],
                 "model": [{"gpt-upstream": "gpt-public"}],
+                "image": False,
                 "preferences": {
                     "post_body_parameter_overrides": {"store": False},
                     "exclude_request_types": ["future-type"],
@@ -66,6 +67,7 @@ def test_snapshot_contains_compiled_models_and_hot_path_configuration():
         "provider-key-1",
         "provider-key-2",
     ]
+    assert snapshot["providers"][0]["image"] is False
     assert snapshot["providers"][0]["only_request_types"] == ["compaction"]
     assert snapshot["providers"][0]["exclude_request_types"] == ["future-type"]
     assert snapshot["providers"][0]["exclude_request_rules"][0]["match"] == {

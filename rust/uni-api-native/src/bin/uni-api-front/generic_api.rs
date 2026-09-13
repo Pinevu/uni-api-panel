@@ -37,6 +37,40 @@ const IMAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_IMAGE_MAX_BYTES: usize = 12 * 1024 * 1024;
 const DEFAULT_UPSTREAM_RESPONSE_MAX_BYTES: usize = 64 * 1024 * 1024;
 const UPSTREAM_ERROR_MAX_BYTES: usize = 1024 * 1024;
+const VISION_FALLBACK_MODEL: &str = "deepseek-v4-pro";
+const VISION_FALLBACK_REQUEST_MODEL: &str = "deepseek-v4-flash";
+
+fn content_part_is_image(value: &Value) -> bool {
+    matches!(
+        value.get("type").and_then(Value::as_str),
+        Some("image_url") | Some("input_image") | Some("image")
+    )
+}
+
+fn payload_contains_image(payload: &Value) -> bool {
+    let has_image_in = |items: Option<&Vec<Value>>| {
+        items.is_some_and(|items| {
+            items.iter().any(|item| {
+                content_part_is_image(item)
+                    || item
+                        .get("content")
+                        .and_then(Value::as_array)
+                        .is_some_and(|parts| parts.iter().any(content_part_is_image))
+            })
+        })
+    };
+    has_image_in(payload.get("messages").and_then(Value::as_array))
+        || has_image_in(payload.get("input").and_then(Value::as_array))
+}
+
+fn routing_model_for_payload(request_model: &str, payload: Option<&Value>) -> String {
+    if request_model.eq_ignore_ascii_case(VISION_FALLBACK_REQUEST_MODEL)
+        && payload.is_some_and(payload_contains_image)
+    {
+        return VISION_FALLBACK_MODEL.to_owned();
+    }
+    request_model.to_owned()
+}
 
 const PUBLIC_JSON_ROUTES: &[&str] = &[
     "/v1/chat/completions",
@@ -238,13 +272,14 @@ pub async fn handle(state: AppState, request: Request, resource_wait: Duration) 
         }
     }
     let body_bytes = input.observation.body_bytes;
+    let routing_model = routing_model_for_payload(&request_model, input.payload.as_ref());
     let request_type = (path == "/v1/responses/compact").then_some("compaction");
     let mut resolved = match state
         .native_responses_config
         .resolve_route(
             &state.persistence,
             &headers,
-            &request_model,
+            &routing_model,
             &path,
             body_bytes,
             request_type,
@@ -287,7 +322,7 @@ pub async fn handle(state: AppState, request: Request, resource_wait: Duration) 
 
     for attempt_index in 0..max_attempts {
         let provider = resolved.providers[attempt_index % resolved.providers.len()].clone();
-        let Some(original_model) = provider.models.get(&request_model).cloned() else {
+        let Some(original_model) = provider.models.get(&routing_model).cloned() else {
             continue;
         };
         let key_selection = if let Some(route) = video_task_route
@@ -1475,6 +1510,26 @@ fn build_attempt(
         } else {
             apply_prompt_cache_affinity(root, provider, incoming_headers, request_model, &engine);
             apply_overrides(root, provider, request_model);
+            // Strip image_url parts when the provider's `image` preference is disabled
+            // (e.g. text-only models on the opencode gateway such as deepseek-v4-flash).
+            // The image preference is stored in the compiled provider snapshot; when set
+            // to `false` we replace each image_url content part with a text placeholder
+            // so the request remains valid and the model can explain it cannot see images.
+            let image_enabled = provider.image;
+            if !image_enabled {
+                if let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) {
+                    for message in messages.iter_mut() {
+                        let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) else {
+                            continue;
+                        };
+                        for part in content.iter_mut() {
+                            if part.get("type").and_then(Value::as_str) == Some("image_url") {
+                                *part = json!({"type": "text", "text": "[图片已过滤，当前模型不支持图片输入]"});
+                            }
+                        }
+                    }
+                }
+            }
             if path == "/v1/responses/compact" {
                 root.remove("store");
             }
@@ -5208,8 +5263,40 @@ mod tests {
             only_request_types: std::sync::Arc::new(Vec::new()),
             excluded_request_types: std::sync::Arc::new(Vec::new()),
             excluded_request_rules: std::sync::Arc::new(Vec::new()),
+            image: true,
             cursor: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
+    }
+
+    #[test]
+    fn vision_request_switches_deepseek_flash_to_pro_without_changing_text_requests() {
+        let vision = json!({
+            "model": "deepseek-v4-flash",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}}
+                ]
+            }]
+        });
+        let text = json!({
+            "model": "deepseek-v4-flash",
+            "messages": [{"role": "user", "content": "hello"}]
+        });
+
+        assert_eq!(
+            routing_model_for_payload("deepseek-v4-flash", Some(&vision)),
+            "deepseek-v4-pro"
+        );
+        assert_eq!(
+            routing_model_for_payload("deepseek-v4-flash", Some(&text)),
+            "deepseek-v4-flash"
+        );
+        assert_eq!(
+            routing_model_for_payload("deepseek-v4-pro", Some(&vision)),
+            "deepseek-v4-pro"
+        );
     }
 
     #[test]

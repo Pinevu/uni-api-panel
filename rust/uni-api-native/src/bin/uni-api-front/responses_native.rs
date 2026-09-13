@@ -116,6 +116,12 @@ struct RawProvider {
     exclude_request_types: Value,
     #[serde(default)]
     exclude_request_rules: Value,
+    #[serde(default = "default_provider_image_enabled")]
+    image: bool,
+}
+
+fn default_provider_image_enabled() -> bool {
+    true
 }
 
 #[derive(Clone)]
@@ -158,6 +164,7 @@ pub(crate) struct Provider {
     pub(crate) only_request_types: Arc<Vec<String>>,
     pub(crate) excluded_request_types: Arc<Vec<String>>,
     pub(crate) excluded_request_rules: Arc<Vec<Value>>,
+    pub(crate) image: bool,
     pub(crate) cursor: Arc<AtomicUsize>,
 }
 
@@ -472,6 +479,7 @@ impl NativeConfigStore {
                 only_request_types: Arc::new(request_type_values(&item.only_request_types)),
                 excluded_request_types: Arc::new(request_type_values(&item.exclude_request_types)),
                 excluded_request_rules: Arc::new(request_rule_values(&item.exclude_request_rules)),
+                image: item.image,
                 cursor,
             });
             providers_by_name.insert(name, provider.clone());
@@ -3400,6 +3408,10 @@ fn remap_provider_status(status: u16, detail: &str) -> u16 {
     if detail.contains("<center><h1>400 Bad Request</h1></center>")
         || detail.contains("Provider API error: bad response status code 400")
         || status == 400 && is_model_pricing_unconfigured(detail)
+        || detail.contains("Model only supports text input")
+        || detail.contains("only supports text input")
+        || detail.contains("unsupported content type 'image_url'")
+        || detail.contains("not a multimodal model")
     {
         return 502;
     }
@@ -3691,6 +3703,7 @@ mod tests {
             only_request_types: Arc::new(Vec::new()),
             excluded_request_types: Arc::new(Vec::new()),
             excluded_request_rules: Arc::new(Vec::new()),
+            image: true,
             cursor: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -4202,6 +4215,16 @@ mod tests {
         );
         assert_eq!(pricing.status, 502);
         assert!(pricing.retryable);
+
+        let text_only = classify_provider_failure(
+            400,
+            "Model only supports text input; received unsupported content type 'image_url'",
+            Some(&base_provider),
+            "/v1/chat/completions",
+            true,
+        );
+        assert_eq!(text_only.status, 502);
+        assert!(text_only.retryable);
 
         let codex = classify_provider_failure(
             400,

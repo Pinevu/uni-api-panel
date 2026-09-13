@@ -84,6 +84,7 @@ def build_rust_responses_snapshot(
                     for request_model, upstream_model in model_dict.items()
                 },
                 "preferences": provider_preferences,
+                "image": provider.get("image", True) is not False,
                 "exclude_endpoints": excluded_endpoints,
                 "only_request_types": provider_request_type_values(
                     provider, "only_request_types"
