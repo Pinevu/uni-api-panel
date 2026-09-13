@@ -554,57 +554,37 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .key-usage-identity {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
   flex: 1;
 }
 .key-usage-prefix {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 750;
   color: var(--text-primary);
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
-.key-usage-role {
-  font-size: 10.5px;
-  font-weight: 650;
-  padding: 2px 7px;
+.key-usage-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2.5px 8px;
   border-radius: var(--radius-full);
-  line-height: 1.3;
-  white-space: nowrap;
-}
-.key-usage-role.admin {
-  background: rgba(129, 140, 248, 0.15);
-  color: var(--primary);
-  border: 1px solid rgba(129, 140, 248, 0.25);
-}
-.key-usage-role.user {
-  background: var(--bg-subtle);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-}
-.key-usage-stat-pill {
-  text-align: right;
-  flex-shrink: 0;
-}
-.key-usage-total {
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 700;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-.key-usage-pct {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 550;
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .key-usage-metrics {
   display: grid;
@@ -2501,13 +2481,31 @@ async function loadUsage() {
 
 function renderUsageFiltered() {
   const query = ($('#usSearchInput')?.value || '').trim().toLowerCase();
-  const usage = rawUsageList.filter(u => {
-    if (!query) return true;
-    return (u.model || '').toLowerCase().includes(query) || (u.api_key_prefix || '').toLowerCase().includes(query);
-  });
 
-  if (!rawUsageList.length) {
-    $('#usageContent').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">所选时间范围内暂无用量数据</div>';
+  // 获取管理员 Key 列表进行彻底排除（管理员仅用于后台鉴权，不计入用量统计）
+  const adminKeys = (configData?.api_keys || [])
+    .filter(a => (a.role || '').toLowerCase() === 'admin')
+    .map(a => a.api);
+
+  const isRecordFromAdminKey = u => {
+    const p = u.api_key_prefix || '';
+    if (p.startsWith('uh_')) return true;
+    return adminKeys.some(ak => {
+      const akPrefix = ak.length > 16 ? ak.slice(0, 8) + '...' + ak.slice(-4) : ak;
+      return ak === p || akPrefix === p;
+    });
+  };
+
+  // 过滤：完全排除管理员 Key，并支持搜索过滤
+  const usage = rawUsageList
+    .filter(u => !isRecordFromAdminKey(u))
+    .filter(u => {
+      if (!query) return true;
+      return (u.model || '').toLowerCase().includes(query) || (u.api_key_prefix || '').toLowerCase().includes(query);
+    });
+
+  if (!rawUsageList.filter(u => !isRecordFromAdminKey(u)).length) {
+    $('#usageContent').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">所选时间范围内暂无客户端用量数据</div>';
     return;
   }
 
@@ -2516,13 +2514,11 @@ function renderUsageFiltered() {
     return;
   }
 
-  // 1. 全局汇总指标计算
+  // 1. 全局客户端汇总指标计算
   const totalTokens = usage.reduce((s, u) => s + (u.total_tokens || 0), 0);
   const totalPrompt = usage.reduce((s, u) => s + (u.total_prompt_tokens || 0), 0);
   const totalComp = usage.reduce((s, u) => s + (u.total_completion_tokens || 0), 0);
   const totalReqs = usage.reduce((s, u) => s + (u.request_count || 0), 0);
-  const keySet = new Set(usage.map(u => u.api_key_prefix || '未知 Key'));
-  const modelSet = new Set(usage.map(u => u.model || 'unknown'));
 
   // 2. 按 API Key 聚合统计
   const keyAggMap = {};
@@ -2567,28 +2563,7 @@ function renderUsageFiltered() {
 
   let html = '';
 
-  // (0) 顶部指标看板卡片 (Metrics Grid)
-  html += `
-    <div class="metrics" style="margin-bottom:14px">
-      <div class="metric-card">
-        <div class="metric-title">总消耗 TOKENS</div>
-        <div class="metric-value">${fmtShort(totalTokens)}</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-title">总调用次数</div>
-        <div class="metric-value">${fmtShort(totalReqs)}</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-title">输入 / 输出</div>
-        <div class="metric-value sm">${fmtShort(totalPrompt)}<span class="sep">/</span>${fmtShort(totalComp)}</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-title">活跃 KEY / 模型</div>
-        <div class="metric-value sm">${keySet.size}<span class="sep">/</span>${modelSet.size}</div>
-      </div>
-    </div>`;
-
-  // (1) 核心模块：按 API Key 详细用量卡片
+  // (1) 核心模块：按 API Key 详细用量卡片（各 Key 头部只保留总占比标签，去除具体 Tokens 重复数据）
   if (sortedKeys.length > 0) {
     html += `
       <div style="margin-bottom:16px">
@@ -2602,30 +2577,17 @@ function renderUsageFiltered() {
       const isShortList = keyModels.length <= 4;
       const visibleLimit = 4;
 
-      // 匹配 key 角色
-      const cfg = (configData?.api_keys || []).find(a => {
-        const p = a.api && (a.api.length > 16 ? a.api.slice(0, 8) + '...' + a.api.slice(-4) : a.api);
-        return p === keyPrefix || a.api === keyPrefix;
-      });
-      const role = cfg?.role || (keyPrefix.startsWith('uh_') ? 'admin' : 'user');
-      const roleLabel = role.toLowerCase() === 'admin' ? '管理员' : '客户端 Key';
-      const roleClass = role.toLowerCase() === 'admin' ? 'admin' : 'user';
-
       html += `
         <div class="key-usage-card">
           <div class="key-usage-top">
             <div class="key-usage-identity">
               <span class="key-dot" style="background:var(--primary)"></span>
               <span class="key-usage-prefix">${esc(keyPrefix)}</span>
-              <span class="key-usage-role ${roleClass}">${roleLabel}</span>
             </div>
-            <div class="key-usage-stat-pill">
-              <div class="key-usage-total">${fmtShort(d.total_tokens)}</div>
-              <div class="key-usage-pct">${keyPct}% 总占比</div>
-            </div>
+            <span class="key-usage-badge">${keyPct}% 占比</span>
           </div>
 
-          <div class="progress-bar-wrap" style="margin-bottom:10px">
+          <div class="progress-bar-wrap" style="margin-bottom:12px">
             <div class="progress-bar-fill" style="width:${Math.max(2, keyPct)}%"></div>
           </div>
 
