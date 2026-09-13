@@ -869,10 +869,15 @@ body {
   margin: 0 1px;
 }
 .chip-alias-name {
-  color: #ffffff;
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+.chip.selected .chip-alias-name {
+  color: #ffffff;
+}
+.chip:not(.selected) .chip-alias-name {
+  color: var(--primary);
 }
 .chip-edit-btn {
   border: none;
@@ -904,6 +909,12 @@ body {
 }
 [data-theme="dark"] .chip.selected .chip-edit-btn:hover {
   background: rgba(0, 0, 0, 0.45);
+}
+
+.ip-unknown {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 11.5px;
 }
 
 /* Interactive Chips for Modals */
@@ -1296,7 +1307,7 @@ body {
    ========================================================================== */
 .toast {
   position: fixed;
-  top: 20px;
+  top: calc(14px + env(safe-area-inset-top, 0px));
   left: 50%;
   transform: translateX(-50%) translateY(-30px);
   background: rgba(15, 23, 42, 0.92);
@@ -1509,7 +1520,7 @@ body {
   </div>
   <div class="search-input-wrap" style="margin-bottom:14px">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-
+    <input class="search-input" id="usSearchInput" placeholder="按模型名称或 Key 前缀搜索用量..." oninput="renderUsageFiltered()">
   </div>
   <div id="usageContent"></div>
 </div>
@@ -2011,6 +2022,16 @@ async function loadOverview() {
     const compData = dayLabels.map((_, i) => dailyResults[i].comp);
     const labels = dayLabels;
 
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
+    const tickColor = isDark ? '#64748b' : '#94a3b8';
+    const tooltipBg = isDark ? '#161b25' : '#ffffff';
+    const tooltipTitle = isDark ? '#f8fafc' : '#0f172a';
+    const tooltipBody = isDark ? '#94a3b8' : '#475569';
+    const tooltipBorder = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
+    const legendColor = isDark ? '#94a3b8' : '#475569';
+    const ptBg = isDark ? '#121622' : '#ffffff';
+
     if (charts.trend) charts.trend.destroy();
     const tCtx = $('#trendChart').getContext('2d');
     charts.trend = new Chart(tCtx, {
@@ -2018,8 +2039,8 @@ async function loadOverview() {
       data: {
         labels,
         datasets: [
-          { label: 'Prompt Tokens', data: promptData, borderColor: '#6366f1', backgroundColor: 'rgba(99, 102, 241, 0.08)', fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: '#fff', pointBorderColor: '#6366f1', pointBorderWidth: 2, borderWidth: 2.5 },
-          { label: 'Output Tokens', data: compData, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.06)', fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: '#fff', pointBorderColor: '#10b981', pointBorderWidth: 2, borderWidth: 2.5 }
+          { label: 'Prompt Tokens', data: promptData, borderColor: '#6366f1', backgroundColor: 'rgba(99, 102, 241, 0.08)', fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: ptBg, pointBorderColor: '#6366f1', pointBorderWidth: 2, borderWidth: 2.5 },
+          { label: 'Output Tokens', data: compData, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.06)', fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: ptBg, pointBorderColor: '#10b981', pointBorderWidth: 2, borderWidth: 2.5 }
         ]
       },
       options: {
@@ -2027,11 +2048,11 @@ async function loadOverview() {
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { display: false },
-          tooltip: { backgroundColor: '#fff', titleColor: '#0f172a', bodyColor: '#475569', borderColor: '#e2e8f0', borderWidth: 1, padding: 12, cornerRadius: 10, boxPadding: 4, usePointStyle: true, titleFont: { weight: '700' }, bodyFont: { size: 13 } }
+          tooltip: { backgroundColor: tooltipBg, titleColor: tooltipTitle, bodyColor: tooltipBody, borderColor: tooltipBorder, borderWidth: 1, padding: 12, cornerRadius: 10, boxPadding: 4, usePointStyle: true, titleFont: { weight: '700' }, bodyFont: { size: 13 } }
         },
         scales: {
-          x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } },
-          y: { grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false }, ticks: { color: '#94a3b8', font: { size: 11 } }, beginAtZero: true }
+          x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 11 } } },
+          y: { grid: { color: gridColor, drawBorder: false }, ticks: { color: tickColor, font: { size: 11 } }, beginAtZero: true }
         }
       }
     });
@@ -2050,7 +2071,7 @@ async function loadOverview() {
       options: {
         responsive: true, maintainAspectRatio: false, animation: false, cutout: '65%',
         plugins: {
-          legend: { position: 'right', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle', font: { size: 12 }, color: '#475569' } }
+          legend: { position: 'right', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle', font: { size: 12 }, color: legendColor } }
         }
       }
     });
@@ -2704,6 +2725,10 @@ async function loadKeys() {
       const expiryText = expiry ? new Date(expiry * 1000).toLocaleDateString('zh-CN') : '永久有效';
       const prefix = k.length > 16 ? k.slice(0, 8) + '...' + k.slice(-4) : (k.slice(0, 12) + '...');
 
+      const showLimit = 12;
+      const hasMore = models.length > showLimit;
+      const initialList = models.slice(0, showLimit);
+
       html += `
         <div class="key-card">
           <div class="key-top">
@@ -2718,9 +2743,10 @@ async function loadKeys() {
             </div>
           </div>
 
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">授权模型权限</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;font-weight:600">授权模型权限 (${isAll ? '全部' : models.length})</div>
           <div class="tags">
-            ${isAll ? '<span class="tag green">全部模型（全量开放）</span>' : models.map(m => `<span class="tag">${esc(m)}</span>`).join('')}
+            ${isAll ? '<span class="tag green">全部模型（全量开放）</span>' : initialList.map(m => `<span class="tag">${esc(m)}</span>`).join('')}
+            ${hasMore && !isAll ? `<span class="tag-more" onclick="expandKeyTags(this, '${esc(k)}')">+${models.length - showLimit} 更多...</span>` : ''}
           </div>
 
           <div class="key-actions">
@@ -2734,6 +2760,16 @@ async function loadKeys() {
     $('#keysContent').innerHTML = html || '<div style="text-align:center;padding:40px;color:var(--text-muted)">暂无 API Key，请点击上方「新建 API Key」</div>';
   } catch (e) {
     showToast('Key 列表加载失败');
+  }
+}
+
+function expandKeyTags(btn, key) {
+  const cfg = (configData?.api_keys || []).find(a => a.api === key);
+  const models = cfg?.model || cfg?.models || [];
+  if (!models.length) return;
+  const box = btn.closest('.tags');
+  if (box) {
+    box.innerHTML = models.map(m => `<span class="tag">${esc(m)}</span>`).join('');
   }
 }
 
@@ -2849,7 +2885,9 @@ function setKeyEnabledState(v) {
   keyIsEnabled = v;
   const toggle = $('#keyEnabledToggle');
   const dot = toggle.querySelector('div');
-  toggle.style.background = v ? 'var(--success)' : '#cbd5e1';
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const inactiveBg = isDark ? 'rgba(255, 255, 255, 0.18)' : '#cbd5e1';
+  toggle.style.background = v ? 'var(--success)' : inactiveBg;
   dot.style.left = v ? '22px' : '2px';
   $('#keyEnabledLabel').textContent = v ? '已启用' : '已禁用';
   toggle.onclick = () => setKeyEnabledState(!keyIsEnabled);
@@ -2962,7 +3000,18 @@ function toggleTheme() {
   document.getElementById('themeIcon').innerHTML = isDark
     ? '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'
     : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  if ($('.tabbar-item.active')?.dataset.tab === 'overview') {
+    loadOverview();
+  }
 }
+
+// 点击遮罩空白处关闭模态框
+document.addEventListener('click', e => {
+  if (e.target && e.target.classList && e.target.classList.contains('modal-overlay')) {
+    if (e.target.id === 'chModal') closeChModal();
+    else if (e.target.id === 'keyModal') closeKeyModal();
+  }
+});
 if (currentKey) {
   api('/v1/stats?hours=1')
     .then(() => enterApp())
