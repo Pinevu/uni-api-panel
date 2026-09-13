@@ -2080,24 +2080,41 @@ async function loadOverview() {
         <div class="metric-value">${activeModels}</div>
       </div>`;
 
-    // Trend chart (line) - fetch daily token usage for accurate daily breakdown
-    const days = hours <= 24 ? 1 : Math.ceil(hours / 24);
-    const dayLabels = [];
-    const dayStarts = [];
-    const dayEnds = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 864e5);
-      const key = (d.getMonth() + 1) + '/' + d.getDate();
-      dayLabels.push(key);
-      const start = new Date(d); start.setHours(0, 0, 0, 0);
-      const end = new Date(d); end.setHours(23, 59, 59, 999);
-      dayStarts.push(start);
-      dayEnds.push(end);
+    // Trend chart (line) - granular intervals for 24h vs daily breakdown for 7d/30d
+    let trendLabels = [];
+    let trendStarts = [];
+    let trendEnds = [];
+
+    if (hours <= 24) {
+      // 24小时视图：按每2小时细分成12个时间槽
+      const slots = 12;
+      const slotMs = 2 * 3600e3;
+      const now = Date.now();
+      for (let i = slots - 1; i >= 0; i--) {
+        const start = new Date(now - (i + 1) * slotMs);
+        const end = new Date(now - i * slotMs);
+        const hh = String(end.getHours()).padStart(2, '0') + ':00';
+        trendLabels.push(hh);
+        trendStarts.push(start);
+        trendEnds.push(end);
+      }
+    } else {
+      // 7天 / 30天视图：按天细分
+      const days = Math.ceil(hours / 24);
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 864e5);
+        const key = (d.getMonth() + 1) + '/' + d.getDate();
+        trendLabels.push(key);
+        const start = new Date(d); start.setHours(0, 0, 0, 0);
+        const end = new Date(d); end.setHours(23, 59, 59, 999);
+        trendStarts.push(start);
+        trendEnds.push(end);
+      }
     }
 
-    // Fetch daily breakdown in parallel
-    const dailyResults = await Promise.all(dayLabels.map((_, i) =>
-      api('/v1/token_usage?start_datetime=' + dayStarts[i].toISOString() + '&end_datetime=' + dayEnds[i].toISOString())
+    // Fetch interval breakdown in parallel
+    const intervalResults = await Promise.all(trendLabels.map((_, i) =>
+      api('/v1/token_usage?start_datetime=' + trendStarts[i].toISOString() + '&end_datetime=' + trendEnds[i].toISOString())
         .then(r => (r.usage || []).reduce((acc, u) => {
           acc.prompt += u.total_prompt_tokens || 0;
           acc.comp += u.total_completion_tokens || 0;
@@ -2106,9 +2123,9 @@ async function loadOverview() {
         .catch(() => ({ prompt: 0, comp: 0 }))
     ));
 
-    const promptData = dayLabels.map((_, i) => dailyResults[i].prompt);
-    const compData = dayLabels.map((_, i) => dailyResults[i].comp);
-    const labels = dayLabels;
+    const promptData = trendLabels.map((_, i) => intervalResults[i].prompt);
+    const compData = trendLabels.map((_, i) => intervalResults[i].comp);
+    const labels = trendLabels;
 
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
@@ -2140,7 +2157,15 @@ async function loadOverview() {
         },
         scales: {
           x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 11 } } },
-          y: { grid: { color: gridColor, drawBorder: false }, ticks: { color: tickColor, font: { size: 11 } }, beginAtZero: true }
+          y: {
+            grid: { color: gridColor, drawBorder: false },
+            ticks: {
+              color: tickColor,
+              font: { size: 11 },
+              callback: function(val) { return fmtShort(val); }
+            },
+            beginAtZero: true
+          }
         }
       }
     });
