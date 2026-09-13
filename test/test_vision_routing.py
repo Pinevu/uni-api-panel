@@ -62,3 +62,44 @@ def test_text_only_image_error_is_retryable_failover():
     assert classifier.is_unsupported_image_input_error(400, details)
     assert classifier.remap_status_code(400, str(details)) == 502
     assert retry_policy.should_retry(True, 502, {"base_url": "https://text.example/v1"}, error_message=str(details))
+
+
+def test_deepseek_flash_auto_fallbacks_to_pro_on_vision_request():
+    config = {
+        "providers": [
+            {
+                "provider": "opencode",
+                "base_url": "https://opencode.ai/zen/go/v1",
+                "api": "test-key",
+                "model": ["deepseek-v4-flash", "deepseek-v4-pro"],
+            }
+        ],
+        "api_keys": [{"api": "sk-test", "model": ["deepseek-v4-flash"]}],
+    }
+
+    async def run():
+        # Text request -> deepseek-v4-flash
+        text_providers = await get_right_order_providers(
+            "deepseek-v4-flash",
+            config,
+            0,
+            "fixed_priority",
+            ["sk-test"],
+            {"sk-test": ["deepseek-v4-flash"]},
+            request_type=None,
+        )
+        assert text_providers[0]["_model_dict_cache"]["deepseek-v4-flash"] == "deepseek-v4-flash"
+
+        # Vision request -> automatically maps to deepseek-v4-pro
+        vision_providers = await get_right_order_providers(
+            "deepseek-v4-flash",
+            config,
+            0,
+            "fixed_priority",
+            ["sk-test"],
+            {"sk-test": ["deepseek-v4-flash"]},
+            request_type=VISION_REQUEST_TYPE,
+        )
+        assert vision_providers[0]["_model_dict_cache"]["deepseek-v4-flash"] == "deepseek-v4-pro"
+
+    asyncio.run(run())

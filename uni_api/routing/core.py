@@ -24,6 +24,10 @@ from uni_api.routing.request_types import (
     detect_request_type,
     provider_accepts_request_type,
 )
+
+DEFAULT_VISION_MODEL_FALLBACKS: dict[str, str] = {
+    "deepseek-v4-flash": "deepseek-v4-pro",
+}
 from uni_api.routing.request_rules import provider_accepts_request_rules
 
 
@@ -464,11 +468,36 @@ async def get_right_order_providers(
         if provider_accepts_request_type(provider, request_type)
     ]
     if request_type == VISION_REQUEST_TYPE:
-        matching_providers = [
-            provider
-            for provider in matching_providers
-            if provider.get("image", True) is not False
-        ]
+        vision_fallback_map = {
+            **DEFAULT_VISION_MODEL_FALLBACKS,
+            **(safe_get(config, "preferences", "vision_model_fallbacks", default={}) or {}),
+        }
+        fallback_target = vision_fallback_map.get(request_model)
+        if fallback_target:
+            fallback_candidates = routing_index.providers_by_model.get(fallback_target, ())
+            fallback_views = []
+            for provider in fallback_candidates:
+                if provider.get("image", True) is False:
+                    continue
+                p_md = _provider_model_dict(provider)
+                upstream_target = p_md.get(fallback_target, fallback_target)
+                view = _provider_view(provider, p_md, fallback_target, request_model)
+                view["_model_dict_cache"] = {request_model: upstream_target}
+                fallback_views.append(view)
+            if fallback_views:
+                matching_providers = fallback_views
+            else:
+                matching_providers = [
+                    provider
+                    for provider in matching_providers
+                    if provider.get("image", True) is not False
+                ]
+        else:
+            matching_providers = [
+                provider
+                for provider in matching_providers
+                if provider.get("image", True) is not False
+            ]
     matching_providers = [
         provider
         for provider in matching_providers
