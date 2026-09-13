@@ -633,7 +633,85 @@ body {
 }
 
 .chart-container { position: relative; height: 230px; }
-.donut-container { position: relative; height: 240px; }
+
+/* Custom Donut Layout & Legend (Mobile friendly, no right-side overflow) */
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.donut-chart-box {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  flex-shrink: 0;
+}
+.donut-legend-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.donut-legend-box::-webkit-scrollbar { width: 3px; }
+.donut-legend-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+
+.donut-legend-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+}
+.donut-legend-item:hover {
+  background: var(--bg-subtle);
+}
+.donut-legend-item.dimmed {
+  opacity: 0.32;
+  text-decoration: line-through;
+}
+.donut-legend-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+.donut-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.donut-legend-name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.donut-legend-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.donut-legend-pct {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
 
 /* ==========================================================================
    Channel Cards (渠道卡片)
@@ -1416,6 +1494,11 @@ body {
   .ch-toggle { padding: 3px 5px; font-size: 11px; }
   .ch-badge { padding: 1px 6px; font-size: 10.5px; }
   .btn-sm { padding: 3.5px 7px; font-size: 11.5px; }
+  .donut-wrap { gap: 12px; }
+  .donut-chart-box { width: 145px; height: 145px; }
+  .donut-legend-box { max-height: 190px; }
+  .donut-legend-item { padding: 2px 4px; font-size: 11px; }
+  .donut-legend-name { font-size: 11px; max-width: 85px; }
   .modal { padding: 18px 16px; border-radius: var(--radius-lg); }
 }
 </style>
@@ -1484,7 +1567,12 @@ body {
   </div>
   <div class="chart-card">
     <div class="chart-title">模型调用分布</div>
-    <div class="donut-container"><canvas id="donutChart"></canvas></div>
+    <div class="donut-wrap" id="donutWrap">
+      <div class="donut-chart-box">
+        <canvas id="donutChart"></canvas>
+      </div>
+      <div class="donut-legend-box" id="donutLegendBox"></div>
+    </div>
   </div>
 </div>
 
@@ -2059,24 +2147,93 @@ async function loadOverview() {
 
     // Donut chart
     const modelCounts = stats.model_request_counts || [];
-    const donutColors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#3b82f6'];
+    const donutColors = [
+      '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4',
+      '#ec4899', '#3b82f6', '#14b8a6', '#f97316', '#84cc16', '#a855f7',
+      '#64748b', '#e11d48', '#0284c7', '#d97706'
+    ];
     if (charts.donut) charts.donut.destroy();
-    const dCtx = $('#donutChart').getContext('2d');
-    charts.donut = new Chart(dCtx, {
-      type: 'doughnut',
-      data: {
-        labels: modelCounts.map(m => m.model),
-        datasets: [{ data: modelCounts.map(m => m.count), backgroundColor: donutColors.slice(0, modelCounts.length), borderWidth: 0, hoverOffset: 6 }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: false, cutout: '65%',
-        plugins: {
-          legend: { position: 'right', labels: { padding: 14, usePointStyle: true, pointStyle: 'circle', font: { size: 12 }, color: legendColor } }
+    const dCtx = $('#donutChart')?.getContext('2d');
+    if (dCtx) {
+      charts.donut = new Chart(dCtx, {
+        type: 'doughnut',
+        data: {
+          labels: modelCounts.map(m => m.model),
+          datasets: [{
+            data: modelCounts.map(m => m.count),
+            backgroundColor: modelCounts.map((_, idx) => donutColors[idx % donutColors.length]),
+            borderWidth: 0,
+            hoverOffset: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          cutout: '68%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: tooltipBg,
+              titleColor: tooltipTitle,
+              bodyColor: tooltipBody,
+              borderColor: tooltipBorder,
+              borderWidth: 1,
+              padding: 10,
+              cornerRadius: 8,
+              boxPadding: 4,
+              usePointStyle: true,
+              callbacks: {
+                label: function(context) {
+                  const val = context.raw || 0;
+                  const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                  return ` ${fmtShort(val)} 次 (${pct}%)`;
+                }
+              }
+            }
+          }
         }
+      });
+    }
+
+    // Render custom scrollable & clickable legend
+    const legendBox = $('#donutLegendBox');
+    if (legendBox) {
+      if (!modelCounts.length) {
+        legendBox.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px 0">暂无调用数据</div>';
+      } else {
+        const totalModelCalls = modelCounts.reduce((acc, m) => acc + (m.count || 0), 0);
+        legendBox.innerHTML = modelCounts.map((m, idx) => {
+          const color = donutColors[idx % donutColors.length];
+          const pct = totalModelCalls > 0 ? ((m.count / totalModelCalls) * 100).toFixed(1) : '0.0';
+          return `
+            <div class="donut-legend-item" onclick="toggleDonutItem(${idx})" title="点击切换该模型显示状态">
+              <div class="donut-legend-left">
+                <span class="donut-legend-dot" style="background:${color}"></span>
+                <span class="donut-legend-name" title="${esc(m.model)}">${esc(m.model)}</span>
+              </div>
+              <div class="donut-legend-meta">
+                <span>${fmtShort(m.count)}</span>
+                <span class="donut-legend-pct">${pct}%</span>
+              </div>
+            </div>`;
+        }).join('');
       }
-    });
+    }
   } catch (e) {
     showToast('概览加载失败');
+  }
+}
+
+function toggleDonutItem(idx) {
+  if (!charts.donut) return;
+  const isVisible = charts.donut.getDataVisibility(idx);
+  charts.donut.toggleDataVisibility(idx);
+  charts.donut.update();
+  const items = $$('.donut-legend-item');
+  if (items[idx]) {
+    items[idx].classList.toggle('dimmed', isVisible);
   }
 }
 
