@@ -20,6 +20,7 @@ from core.utils import (
 )
 from uni_api.api.models import post_all_models
 from uni_api.routing.request_types import (
+    VISION_REQUEST_TYPE,
     detect_request_type,
     provider_accepts_request_type,
 )
@@ -119,6 +120,7 @@ def _provider_view(provider: dict, model_dict: dict, model_name: str, request_mo
         "only_request_types": provider.get("only_request_types"),
         "exclude_request_types": provider.get("exclude_request_types"),
         "exclude_request_rules": provider.get("exclude_request_rules"),
+        "image": provider.get("image", True),
     }
 
 
@@ -461,6 +463,12 @@ async def get_right_order_providers(
         for provider in matching_providers
         if provider_accepts_request_type(provider, request_type)
     ]
+    if request_type == VISION_REQUEST_TYPE:
+        matching_providers = [
+            provider
+            for provider in matching_providers
+            if provider.get("image", True) is not False
+        ]
     matching_providers = [
         provider
         for provider in matching_providers

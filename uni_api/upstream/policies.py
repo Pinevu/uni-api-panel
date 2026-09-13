@@ -44,6 +44,17 @@ _MODEL_PRICING_UNCONFIGURED_MARKERS = (
     "价格尚未由管理员配置",
 )
 
+# Some compatible gateways return HTTP 400 when the selected channel/model
+# cannot accept an image part.  This is a channel capability failure, not a
+# malformed client request, so the router must be allowed to fail over.
+_UNSUPPORTED_IMAGE_INPUT_MARKERS = (
+    "model only supports text input",
+    "only supports text input",
+    "unsupported content type 'image_url'",
+    'unsupported content type "image_url"',
+    "received unsupported content type",
+)
+
 
 def _timeout_seconds_text(value: Any) -> Optional[str]:
     if isinstance(value, bool):
@@ -186,11 +197,27 @@ class ProviderErrorClassifier:
             # Treat that provider response as a bad gateway response so the
             # routing layer can fail over to another channel.
             return 502
+        if self.is_unsupported_image_input_error(status_code, error_message):
+            # A text-only channel rejected a valid multimodal request.  Mark it
+            # as an upstream failure so the retry policy can select a vision
+            # capable channel instead of returning the provider error directly.
+            return 502
         if "The response was filtered due to the prompt triggering Azure OpenAI's content management policy." in error_message:
             return 403
         if "<head><title>413 Request Entity Too Large</title></head>" in error_message:
             return 429
         return status_code
+
+    def is_unsupported_image_input_error(
+        self,
+        status_code: int,
+        details: Any,
+    ) -> bool:
+        if status_code != 400:
+            return False
+        _code, _error_type, message, raw = self.details_parts(details)
+        haystack = " ".join(part for part in (message, raw) if part).casefold()
+        return any(marker.casefold() in haystack for marker in _UNSUPPORTED_IMAGE_INPUT_MARKERS)
 
     def is_model_pricing_unconfigured_error(
         self,

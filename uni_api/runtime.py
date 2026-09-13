@@ -4266,6 +4266,7 @@ class ModelRequestHandler:
             endpoint=routing_endpoint,
             request_total_tokens=request_total_tokens,
             request_body_bytes=request_body_bytes,
+            request_type=detect_request_type(routing_endpoint, request_data),
             reasoning_effort=request_reasoning_effort(request_data),
             debug=is_debug,
             provider_resolver=get_right_order_providers,
@@ -4325,6 +4326,7 @@ class ModelRequestHandler:
                     channel_manager=app.state.channel_manager,
                     request_total_tokens=request_total_tokens,
                     request_body_bytes=request_body_bytes,
+                    request_type=plan.request_type,
                     debug=is_debug,
                     routing_index=getattr(app.state, "routing_index", None),
                 )
@@ -9690,6 +9692,7 @@ class MessagesPassthroughHandler:
             self.locks,
             endpoint=endpoint,
             request_body_bytes=request_body_bytes,
+            request_type=detect_request_type(endpoint, request_body),
             reasoning_effort=request_reasoning_effort(request_body),
             debug=is_debug,
             provider_resolver=get_right_order_providers,
