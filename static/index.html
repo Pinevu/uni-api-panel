@@ -2635,18 +2635,26 @@ function renderUsageFiltered() {
     html += `</div>`;
   }
 
-  // (2) 全站各模型汇总消耗排行榜
+  // (2) 全站各模型汇总消耗排行榜（默认只排前五，其余折叠）
   if (sortedModels.length > 0) {
+    const topLimit = 5;
+    const hasMoreModels = sortedModels.length > topLimit;
+
     html += `
       <div class="chart-card" style="margin-bottom:14px">
-        <div class="chart-title">📊 全站模型消耗排行榜</div>
-        <div style="display:flex;flex-direction:column;gap:12px">
-          ${sortedModels.map(([modelName, d]) => {
+        <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>📊 全站模型消耗排行榜</span>
+          <span style="font-size:11px;color:var(--text-muted);font-weight:500">共 ${sortedModels.length} 个模型</span>
+        </div>
+        <div class="all-models-usage-box" style="display:flex;flex-direction:column;gap:12px">
+          ${sortedModels.map(([modelName, d], idx) => {
             const pct = totalTokens > 0 ? ((d.tokens / totalTokens) * 100).toFixed(1) : '0.0';
+            const isExtra = idx >= topLimit;
             return `
-              <div>
+              <div class="${isExtra ? 'all-model-extra' : ''}" style="${isExtra ? 'display:none' : ''}">
                 <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px;margin-bottom:4px">
                   <div style="display:flex;align-items:center;gap:6px">
+                    <span style="font-size:11px;font-weight:700;color:${idx < 3 ? 'var(--primary)' : 'var(--text-muted)'};font-family:var(--font-mono);width:16px">${idx + 1}.</span>
                     <span class="tag">${esc(modelName)}</span>
                     <span style="color:var(--text-muted);font-size:12px">${d.requests} 次调用</span>
                   </div>
@@ -2659,11 +2667,24 @@ function renderUsageFiltered() {
                 </div>
               </div>`;
           }).join('')}
+          ${hasMoreModels ? `
+            <div class="key-models-toggle" onclick="toggleAllModelsUsage(this)" data-expanded="false" data-more-text="+${sortedModels.length - topLimit} 更多模型..." style="align-self:center;margin-top:4px">
+              +${sortedModels.length - topLimit} 更多模型...
+            </div>` : ''}
         </div>
       </div>`;
   }
 
   $('#usageContent').innerHTML = html;
+}
+
+function toggleAllModelsUsage(btn) {
+  const box = btn.closest('.all-models-usage-box');
+  const hidden = box.querySelectorAll('.all-model-extra');
+  const isExpanded = btn.dataset.expanded === 'true';
+  hidden.forEach(el => el.style.display = isExpanded ? 'none' : 'block');
+  btn.dataset.expanded = isExpanded ? 'false' : 'true';
+  btn.textContent = isExpanded ? btn.dataset.moreText : '收起其余模型';
 }
 
 function toggleKeyUsageModels(btn) {
