@@ -1404,6 +1404,125 @@ body {
   box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
+.model-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: min(420px, 55vh);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  touch-action: pan-y;
+}
+
+.model-order-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  user-select: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.model-order-row.dragging {
+  opacity: 0.5;
+  background: var(--bg-subtle-hover);
+}
+
+.model-order-row.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  box-shadow: 0 0 0 1.5px var(--primary);
+}
+
+.model-order-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+  padding: 4px 2px;
+  flex-shrink: 0;
+}
+
+.model-order-grip:active {
+  cursor: grabbing;
+}
+
+.model-order-index {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  min-width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.model-order-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-order-move {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.model-order-move button {
+  width: 30px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+  touch-action: manipulation;
+  padding: 0;
+}
+
+@media (hover: hover) {
+  .model-order-move button:not(:disabled):hover {
+    background: var(--bg-card);
+    color: var(--primary);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+}
+
+.model-order-move button:not(:disabled):active {
+  background: var(--bg-card);
+  color: var(--primary);
+  transform: scale(0.92);
+}
+
+.model-order-move button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
 .chips-container {
   max-height: 180px;
   overflow-y: auto;
@@ -1951,6 +2070,17 @@ body {
     </div>
 
     <div class="form-group">
+      <div class="form-label">
+        <span>模型返回顺序</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--text-muted);font-weight:500">拖动或按箭头调整</span>
+          <button class="btn btn-outline btn-sm" type="button" onclick="resetKeyModelOrder()" style="padding:2.5px 7px;font-size:11px" title="恢复渠道原始顺序">重置</button>
+        </div>
+      </div>
+      <div id="keyEditorModelOrder" class="model-order-list"></div>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">有效期截止时间</label>
       <input class="modal-input" id="keyExpiry" type="datetime-local">
       <div class="expiry-presets">
@@ -2067,6 +2197,7 @@ function renderModelTag(item) {
 }
 let keyAllModels = [];
 let keySelectedSet = new Set();
+let keyModelOrder = [];
 let isKeyCreating = false;
 
 /* ===== Core API ===== */
@@ -3268,6 +3399,7 @@ function openKeyEditor(key) {
 
     // 默认全选所有可用模型
     keySelectedSet = new Set(keyAllModels);
+    keyModelOrder = [...keyAllModels];
     setKeyEnabledState(true);
   } else {
     // 编辑模式
@@ -3284,6 +3416,11 @@ function openKeyEditor(key) {
     $('#keyModal').dataset.fullkey = key;
 
     keySelectedSet = new Set(models.length ? models : keyAllModels);
+    const savedOrder = Array.isArray(cfg?.model_order) ? cfg.model_order : [];
+    keyModelOrder = [
+      ...savedOrder.filter(model => keySelectedSet.has(model)),
+      ...[...keySelectedSet].filter(model => !savedOrder.includes(model)).sort()
+    ];
 
     if (expiry) {
       const d = new Date(expiry * 1000);
@@ -3297,6 +3434,7 @@ function openKeyEditor(key) {
   }
 
   renderKeyChips();
+  renderKeyModelOrder();
   $('#keyModal').classList.add('show');
 }
 
@@ -3328,7 +3466,9 @@ function renderKeyChips() {
 function toggleKeyModel(m) {
   if (keySelectedSet.has(m)) keySelectedSet.delete(m);
   else keySelectedSet.add(m);
+  syncKeyModelOrder();
   renderKeyChips();
+  renderKeyModelOrder();
 }
 
 function toggleAllKeyModels(selectAll) {
@@ -3337,7 +3477,107 @@ function toggleAllKeyModels(selectAll) {
   } else {
     keySelectedSet.clear();
   }
+  syncKeyModelOrder();
   renderKeyChips();
+  renderKeyModelOrder();
+}
+
+function syncKeyModelOrder() {
+  keyModelOrder = [
+    ...keyModelOrder.filter(model => keySelectedSet.has(model)),
+    ...[...keySelectedSet].filter(model => !keyModelOrder.includes(model)).sort()
+  ];
+}
+
+let keyOrderDragIndex = null;
+let keyOrderPointerId = null;
+function renderKeyModelOrder() {
+  const box = $('#keyEditorModelOrder');
+  if (!box) return;
+  syncKeyModelOrder();
+  if (!keyModelOrder.length) {
+    box.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:10px 0">请先选择授权模型</div>';
+    return;
+  }
+  box.innerHTML = keyModelOrder.map((model, index) => `
+    <div class="model-order-row" data-index="${index}">
+      <span class="model-order-grip" aria-hidden="true" title="按住拖动">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="opacity:0.6"><circle cx="9" cy="5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="19" r="1.6"/><circle cx="15" cy="5" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="19" r="1.6"/></svg>
+      </span>
+      <span class="model-order-index">${index + 1}</span>
+      <span class="model-order-name" title="${esc(model)}">${esc(model)}</span>
+      <span class="model-order-move">
+        <button type="button" aria-label="上移" onclick="moveKeyModelOrder(event, ${index}, -1)" ${index === 0 ? 'disabled' : ''}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+        </button>
+        <button type="button" aria-label="下移" onclick="moveKeyModelOrder(event, ${index}, 1)" ${index === keyModelOrder.length - 1 ? 'disabled' : ''}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+      </span>
+    </div>`).join('');
+  box.querySelectorAll('.model-order-row').forEach(row => {
+    const grip = row.querySelector('.model-order-grip');
+    grip.addEventListener('pointerdown', event => startKeyOrderPointer(event, row, box));
+  });
+}
+
+function resetKeyModelOrder() {
+  keyModelOrder = [
+    ...keyAllModels.filter(m => keySelectedSet.has(m)),
+    ...[...keySelectedSet].filter(m => !keyAllModels.includes(m)).sort()
+  ];
+  renderKeyModelOrder();
+  showToast('已按原渠道顺序重置');
+}
+
+function startKeyOrderPointer(event, row, box) {
+  if (event.button !== undefined && event.button !== 0) return;
+  const grip = row.querySelector('.model-order-grip');
+  try { if (grip && event.pointerId) grip.setPointerCapture(event.pointerId); } catch(e) {}
+  keyOrderDragIndex = Number(row.dataset.index);
+  keyOrderPointerId = event.pointerId;
+  row.classList.add('dragging');
+  event.preventDefault();
+  const move = pointerEvent => {
+    if (pointerEvent.pointerId !== keyOrderPointerId) return;
+    const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)?.closest('.model-order-row');
+    box.querySelectorAll('.model-order-row').forEach(item => item.classList.toggle('drag-over', item === target && item !== row));
+    const edge = box.getBoundingClientRect();
+    if (pointerEvent.clientY < edge.top + 28) box.scrollTop -= 12;
+    if (pointerEvent.clientY > edge.bottom - 28) box.scrollTop += 12;
+  };
+  const finish = pointerEvent => {
+    if (pointerEvent.pointerId !== keyOrderPointerId) return;
+    const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)?.closest('.model-order-row');
+    const from = keyOrderDragIndex;
+    keyOrderDragIndex = null;
+    keyOrderPointerId = null;
+    try { if (grip && pointerEvent.pointerId) grip.releasePointerCapture(pointerEvent.pointerId); } catch(e) {}
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', finish);
+    document.removeEventListener('pointercancel', finish);
+    if (target && Number(target.dataset.index) !== from) {
+      reorderKeyModel(from, Number(target.dataset.index));
+    } else {
+      renderKeyModelOrder();
+    }
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', finish);
+  document.addEventListener('pointercancel', finish);
+}
+
+function reorderKeyModel(from, to) {
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from === to || from < 0 || to < 0 || from >= keyModelOrder.length || to >= keyModelOrder.length) return;
+  const [model] = keyModelOrder.splice(from, 1);
+  keyModelOrder.splice(to, 0, model);
+  renderKeyModelOrder();
+}
+
+function moveKeyModelOrder(event, index, delta) {
+  event.preventDefault();
+  event.stopPropagation();
+  reorderKeyModel(index, index + delta);
 }
 
 function filterKeyModels() {
@@ -3371,6 +3611,8 @@ function saveKeyEdit() {
   if (!configData.api_keys) configData.api_keys = [];
 
   const models = [...keySelectedSet];
+  syncKeyModelOrder();
+  const modelOrder = keyModelOrder.slice();
   const expiryStr = $('#keyExpiry').value;
 
   if (isKeyCreating) {
@@ -3383,6 +3625,7 @@ function saveKeyEdit() {
       role: 'user',
       models: models,
       model: models,
+      model_order: modelOrder,
       enabled: keyIsEnabled
     };
     if (expiryStr) {
@@ -3398,6 +3641,7 @@ function saveKeyEdit() {
     }
     cfg.models = models;
     cfg.model = models;
+    cfg.model_order = modelOrder;
     cfg.enabled = keyIsEnabled;
     if (expiryStr) {
       cfg.expires_at = Math.floor(new Date(expiryStr).getTime() / 1000);

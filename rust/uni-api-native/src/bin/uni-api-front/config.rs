@@ -137,7 +137,7 @@ impl RuntimeConfigPublisher {
         for (key, value) in patch {
             if matches!(
                 key.as_str(),
-                "providers" | "api_keys" | "preferences" | "video"
+                "providers" | "api_keys" | "preferences" | "video" | "model_order"
             ) {
                 root.insert(key.clone(), value.clone());
             }
@@ -861,6 +861,7 @@ fn compile_api_key(value: &Value, _database_disabled: bool) -> Option<Value> {
         .unwrap_or_default();
     Some(json!({
         "token": token,
+        "model_order": item.get("model_order").and_then(Value::as_array).cloned().unwrap_or_default(),
         "model_rules": model_rules,
         "role": item.get("role").and_then(Value::as_str).unwrap_or_else(|| token.get(..8).unwrap_or(&token)),
         "weights": weights,
@@ -1008,6 +1009,32 @@ api_keys:
         assert_eq!(value["providers"][0]["model_order"][0], "gpt-5.6-sol");
         assert_eq!(value["api_keys"][0]["native_paid_state_safe"], true);
         assert_eq!(value["revision"].as_str().unwrap().len(), 64);
+    }
+
+    #[test]
+    fn compiles_global_model_order_without_changing_authorization_rules() {
+        let raw = br#"
+model_order:
+  - grok-4.7
+  - grok-4.5
+providers:
+  - provider: build
+    base_url: https://example.com/v1
+    api: upstream
+    model:
+      - grok-4.5
+      - grok-4.7
+api_keys:
+  - api: client
+    role: user
+    model:
+      - grok-4.5
+      - grok-4.7
+"#;
+        let value: Value = serde_json::from_slice(&compile_snapshot_bytes(raw, true).unwrap()).unwrap();
+        assert_eq!(value["preferences"]["model_order"], json!(["grok-4.7", "grok-4.5"]));
+        assert_eq!(value["api_keys"][0]["model_order"], json!(["grok-4.5", "grok-4.7"]));
+        assert_eq!(value["api_keys"][0]["model_rules"], json!(["grok-4.5", "grok-4.7"]));
     }
 
     #[test]

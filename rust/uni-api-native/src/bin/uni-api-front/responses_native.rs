@@ -73,6 +73,8 @@ struct RawSnapshot {
 struct RawApiKey {
     token: String,
     #[serde(default)]
+    model_order: Vec<String>,
+    #[serde(default)]
     model_rules: Vec<Value>,
     #[serde(default)]
     role: String,
@@ -137,6 +139,7 @@ pub(crate) struct Snapshot {
 #[derive(Clone)]
 pub(crate) struct ApiKey {
     pub(crate) token: Arc<str>,
+    pub(crate) model_order: Arc<Vec<String>>,
     pub(crate) model_rules: Arc<Vec<String>>,
     pub(crate) role: Arc<str>,
     pub(crate) preferences: Arc<Map<String, Value>>,
@@ -505,6 +508,7 @@ impl NativeConfigStore {
                     token.clone(),
                     Arc::new(ApiKey {
                         token: token.into(),
+                        model_order: Arc::new(item.model_order),
                         model_rules: Arc::new(rules),
                         role: item.role.into(),
                         preferences: Arc::new(item.preferences),
@@ -584,7 +588,23 @@ impl NativeConfigStore {
                 models.insert(rule.clone());
             }
         }
-        Ok(models.into_iter().collect())
+
+        // Honor saved order and append newly added authorized models afterwards.
+        let mut ordered = Vec::with_capacity(models.len());
+        for model in api_key.model_order.iter() {
+            if models.remove(model) {
+                ordered.push(model.clone());
+            }
+        }
+        if let Some(extra) = snapshot.api_config.get("model_order").and_then(Value::as_array) {
+            for model in extra.iter().filter_map(Value::as_str) {
+                if models.remove(model) {
+                    ordered.push(model.to_owned());
+                }
+            }
+        }
+        ordered.extend(models);
+        Ok(ordered)
     }
 
     pub(crate) async fn authorize(
@@ -3729,6 +3749,7 @@ mod tests {
         });
         let api_key = Arc::new(ApiKey {
             token: Arc::from("client-key"),
+            model_order: Arc::new(Vec::new()),
             model_rules: Arc::new(Vec::new()),
             role: Arc::from("user"),
             preferences: Arc::new(Map::from_iter([("AUTO_RETRY".into(), json!(true))])),
@@ -4022,6 +4043,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn models_for_headers_respects_custom_order_and_appends_new_models() {
+        let store = NativeConfigStore::new();
+        let a = Arc::new(Provider {
+            models: Arc::new(HashMap::from([
+                ("grok-4.5".into(), "grok-4.5".into()),
+                ("grok-4.6".into(), "grok-4.6".into()),
+                ("grok-4.7".into(), "grok-4.7".into()),
+            ])),
+            ..provider()
+        });
+        let api_key = Arc::new(ApiKey {
+            token: Arc::from("client-key"),
+            model_order: Arc::new(vec!["grok-4.7".into(), "grok-4.5".into()]),
+            model_rules: Arc::new(vec!["all".into()]),
+            role: Arc::from("user"),
+            preferences: Arc::new(Map::new()),
+            weights: Arc::new(Map::new()),
+            native_supported: true,
+        });
+        let snapshot = Arc::new(Snapshot {
+            revision: Arc::from("0".repeat(64)),
+            preferences: Arc::new(Map::new()),
+            api_keys: Arc::new(HashMap::from([("client-key".into(), api_key)])),
+            providers: Arc::new(vec![a.clone()]),
+            providers_by_name: Arc::new(HashMap::from([(a.name.to_string(), a)])),
+            api_config: Arc::new(json!({})),
+        });
+        *store.current.write().await = Some(snapshot);
+
+        let headers = HeaderMap::from_iter([(
+            HeaderName::from_static("authorization"),
+            HeaderValue::from_static("Bearer client-key"),
+        )]);
+        let models = store.models_for_headers(&headers).await.unwrap();
+        assert_eq!(models, vec!["grok-4.7", "grok-4.5", "grok-4.6"]);
+    }
+
+    #[tokio::test]
     async fn weighted_round_robin_matches_legacy_sequence_and_rotates_requests() {
         let providers = vec![named_provider("a"), named_provider("b")];
         let weights = Map::from_iter([
@@ -4040,6 +4099,7 @@ mod tests {
 
         let api_key = ApiKey {
             token: "client".into(),
+            model_order: Arc::new(Vec::new()),
             model_rules: Arc::new(vec!["all".into()]),
             role: "client".into(),
             preferences: Arc::new(Map::from_iter([(

@@ -327,7 +327,6 @@ async fn models_response(state: &AppState, uri: &Uri, headers: &HeaderMap) -> Re
             "../../../../../uni_api/api/codex_models_pro_0_144_0.json"
         ))
         .unwrap_or_else(|_| json!({"models":[]}));
-        let allowed = models.iter().map(String::as_str).collect::<HashSet<_>>();
         let catalog_models = catalog
             .get("models")
             .and_then(Value::as_array)
@@ -342,30 +341,19 @@ async fn models_response(state: &AppState, uri: &Uri, headers: &HeaderMap) -> Re
                 ))
             })
             .collect::<HashMap<_, _>>();
-        let mut filtered = catalog_models
-            .into_iter()
-            .filter(|model| {
-                model
-                    .get("slug")
-                    .and_then(Value::as_str)
-                    .is_some_and(|slug| allowed.contains(slug))
-            })
-            .collect::<Vec<_>>();
-        let mut included = filtered
-            .iter()
-            .filter_map(|model| model.get("slug").and_then(Value::as_str))
-            .map(str::to_owned)
-            .collect::<HashSet<_>>();
-        for model in &models {
-            if included.contains(model) || !is_codex_catalog_model(model) {
+        let mut filtered = Vec::with_capacity(models.len());
+        let mut included = HashSet::new();
+        for (index, model) in models.iter().enumerate() {
+            if !is_codex_catalog_model(model) || !included.insert(model.clone()) {
                 continue;
             }
+            // Clients sort this catalog by descending priority. Keep the saved
+            // list order by assigning the first model the highest priority.
             filtered.push(codex_compatible_model(
                 model,
-                100 + filtered.len(),
+                models.len().saturating_sub(index),
                 &by_slug,
             ));
-            included.insert(model.clone());
         }
         let mut response = json_response(StatusCode::OK, json!({"models":filtered}));
         response.headers_mut().insert(
@@ -378,10 +366,10 @@ async fn models_response(state: &AppState, uri: &Uri, headers: &HeaderMap) -> Re
         StatusCode::OK,
         json!({
             "object": "list",
-            "data": models.into_iter().map(|model| json!({
+            "data": models.iter().enumerate().map(|(index, model)| json!({
                 "id": model,
                 "object": "model",
-                "created": MODEL_CREATED,
+                "created": MODEL_CREATED.saturating_sub(index as u64),
                 "owned_by": "uni-api",
             })).collect::<Vec<_>>(),
         }),
