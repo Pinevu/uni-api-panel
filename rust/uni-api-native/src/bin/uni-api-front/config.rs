@@ -1032,7 +1032,7 @@ api_keys:
       - grok-4.7
 "#;
         let value: Value = serde_json::from_slice(&compile_snapshot_bytes(raw, true).unwrap()).unwrap();
-        assert_eq!(value["preferences"]["model_order"], json!(["grok-4.7", "grok-4.5"]));
+        assert_eq!(value["api_config"]["model_order"], json!(["grok-4.7", "grok-4.5"]));
         assert_eq!(value["api_keys"][0]["model_order"], json!(["grok-4.5", "grok-4.7"]));
         assert_eq!(value["api_keys"][0]["model_rules"], json!(["grok-4.5", "grok-4.7"]));
     }
