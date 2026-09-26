@@ -1033,8 +1033,32 @@ api_keys:
 "#;
         let value: Value = serde_json::from_slice(&compile_snapshot_bytes(raw, true).unwrap()).unwrap();
         assert_eq!(value["api_config"]["model_order"], json!(["grok-4.7", "grok-4.5"]));
-        assert_eq!(value["api_keys"][0]["model_order"], json!(["grok-4.5", "grok-4.7"]));
+        assert_eq!(value["api_keys"][0]["model_order"], json!([]));
         assert_eq!(value["api_keys"][0]["model_rules"], json!(["grok-4.5", "grok-4.7"]));
+    }
+
+    #[test]
+    fn compiles_api_key_custom_model_order() {
+        let raw = br#"
+providers:
+  - provider: build
+    base_url: https://example.com/v1
+    api: upstream
+    model:
+      - grok-4.5
+      - grok-4.7
+api_keys:
+  - api: client
+    role: user
+    model:
+      - grok-4.5
+      - grok-4.7
+    model_order:
+      - grok-4.7
+      - grok-4.5
+"#;
+        let value: Value = serde_json::from_slice(&compile_snapshot_bytes(raw, true).unwrap()).unwrap();
+        assert_eq!(value["api_keys"][0]["model_order"], json!(["grok-4.7", "grok-4.5"]));
     }
 
     #[test]
