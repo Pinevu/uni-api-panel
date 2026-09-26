@@ -648,6 +648,7 @@ body {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .key-model-stat b {
   color: var(--text-primary);
@@ -2777,24 +2778,21 @@ function renderUsageFiltered() {
           <span>📊 全站模型消耗排行榜</span>
           <span style="font-size:11px;color:var(--text-muted);font-weight:500">共 ${sortedModels.length} 个模型</span>
         </div>
-        <div class="all-models-usage-box" style="display:flex;flex-direction:column;gap:12px">
+        <div class="all-models-usage-box" style="display:flex;flex-direction:column;gap:8px">
           ${sortedModels.map(([modelName, d], idx) => {
             const pct = totalTokens > 0 ? ((d.tokens / totalTokens) * 100).toFixed(1) : '0.0';
             const isExtra = idx >= topLimit;
             return `
-              <div class="${isExtra ? 'all-model-extra' : ''}" style="${isExtra ? 'display:none' : ''}">
-                <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px;margin-bottom:4px">
-                  <div style="display:flex;align-items:center;gap:6px">
-                    <span style="font-size:11px;font-weight:700;color:${idx < 3 ? 'var(--primary)' : 'var(--text-muted)'};font-family:var(--font-mono);width:16px">${idx + 1}.</span>
-                    <span class="tag">${esc(modelName)}</span>
-                    <span style="color:var(--text-muted);font-size:12px">${d.requests} 次调用</span>
+              <div class="key-model-item ${isExtra ? 'all-model-extra' : ''}" style="${isExtra ? 'display:none' : ''}">
+                <div class="key-model-header">
+                  <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
+                    <span style="font-size:11px;font-weight:700;color:${idx < 3 ? 'var(--primary)' : 'var(--text-muted)'};font-family:var(--font-mono);min-width:18px">${idx + 1}.</span>
+                    <span class="key-model-name" style="max-width:none" title="${esc(modelName)}">${esc(modelName)}</span>
                   </div>
-                  <div style="font-weight:700;color:var(--text-primary);font-variant-numeric:tabular-nums">
-                    ${fmtShort(d.tokens)} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${pct}%)</span>
-                  </div>
+                  <span class="key-model-stat"><b>${fmtShort(d.tokens)}</b> (${pct}%) · ${d.requests}次</span>
                 </div>
-                <div class="progress-bar-wrap">
-                  <div class="progress-bar-fill" style="width:${Math.max(2, pct)}%"></div>
+                <div class="progress-bar-wrap" style="height:4px;margin-top:2px">
+                  <div class="progress-bar-fill" style="width:${Math.max(2, pct)}%;background:var(--primary)"></div>
                 </div>
               </div>`;
           }).join('')}
@@ -2813,7 +2811,7 @@ function toggleAllModelsUsage(btn) {
   const box = btn.closest('.all-models-usage-box');
   const hidden = box.querySelectorAll('.all-model-extra');
   const isExpanded = btn.dataset.expanded === 'true';
-  hidden.forEach(el => el.style.display = isExpanded ? 'none' : 'block');
+  hidden.forEach(el => el.style.display = isExpanded ? 'none' : 'flex');
   btn.dataset.expanded = isExpanded ? 'false' : 'true';
   btn.textContent = isExpanded ? btn.dataset.moreText : '收起其余模型';
 }
