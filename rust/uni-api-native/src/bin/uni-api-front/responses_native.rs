@@ -577,8 +577,10 @@ impl NativeConfigStore {
                     } else if provider.models.contains_key(model_rule) {
                         models.insert(model_rule.to_owned());
                     }
+                    continue;
                 }
-                continue;
+                // Unknown provider prefix: fall through so a literal model name
+                // containing '/' (e.g. "Qwen/Qwen3.7-Flash") still matches.
             }
             if snapshot
                 .providers
@@ -2231,17 +2233,27 @@ fn matching_providers(
             continue;
         }
         if let Some((provider_name, model_rule)) = rule.split_once('/') {
-            let Some(provider) = snapshot.providers_by_name.get(provider_name) else {
-                // Nested API-key providers remain on the Python compatibility path.
-                if snapshot.api_keys.contains_key(provider_name) {
-                    return Err(());
+            if let Some(provider) = snapshot.providers_by_name.get(provider_name) {
+                if (model_rule == "*" || model_rule == request_model)
+                    && provider.models.contains_key(request_model)
+                {
+                    matches.push(provider.clone());
                 }
                 continue;
-            };
-            if (model_rule == "*" || model_rule == request_model)
-                && provider.models.contains_key(request_model)
-            {
-                matches.push(provider.clone());
+            }
+            if snapshot.api_keys.contains_key(provider_name) {
+                // Nested API-key providers remain on the Python compatibility path.
+                return Err(());
+            }
+            // Unknown prefix: the rule may be a literal model name containing '/'.
+            if rule == request_model {
+                matches.extend(
+                    snapshot
+                        .providers
+                        .iter()
+                        .filter(|provider| provider.models.contains_key(request_model))
+                        .cloned(),
+                );
             }
             continue;
         }
@@ -4078,6 +4090,43 @@ mod tests {
         )]);
         let models = store.models_for_headers(&headers).await.unwrap();
         assert_eq!(models, vec!["grok-4.7", "grok-4.5", "grok-4.6"]);
+    }
+
+    #[tokio::test]
+    async fn models_for_headers_keeps_literal_model_names_containing_slash() {
+        let store = NativeConfigStore::new();
+        let a = Arc::new(Provider {
+            models: Arc::new(HashMap::from([
+                ("Qwen/Qwen3.7-Flash".into(), "Qwen/Qwen3.7-Flash".into()),
+                ("grok-4.5".into(), "grok-4.5".into()),
+            ])),
+            ..provider()
+        });
+        let api_key = Arc::new(ApiKey {
+            token: Arc::from("client-key"),
+            model_order: Arc::new(Vec::new()),
+            model_rules: Arc::new(vec!["Qwen/Qwen3.7-Flash".into()]),
+            role: Arc::from("user"),
+            preferences: Arc::new(Map::new()),
+            weights: Arc::new(Map::new()),
+            native_supported: true,
+        });
+        let snapshot = Arc::new(Snapshot {
+            revision: Arc::from("0".repeat(64)),
+            preferences: Arc::new(Map::new()),
+            api_keys: Arc::new(HashMap::from([("client-key".into(), api_key)])),
+            providers: Arc::new(vec![a.clone()]),
+            providers_by_name: Arc::new(HashMap::from([(a.name.to_string(), a)])),
+            api_config: Arc::new(json!({})),
+        });
+        *store.current.write().await = Some(snapshot);
+
+        let headers = HeaderMap::from_iter([(
+            HeaderName::from_static("authorization"),
+            HeaderValue::from_static("Bearer client-key"),
+        )]);
+        let models = store.models_for_headers(&headers).await.unwrap();
+        assert_eq!(models, vec!["Qwen/Qwen3.7-Flash"]);
     }
 
     #[tokio::test]
