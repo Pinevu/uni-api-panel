@@ -11,6 +11,9 @@ services:
       TZ: Asia/Shanghai
       ADMIN_API_KEY: ${ADMIN_API_KEY}
       UNI_API_RUNTIME: rust
+      # Idle timeout between request-body chunks from clients, in seconds.
+      # Raise it when clients upload large bodies over slow or mobile networks.
+      REQUEST_BODY_IDLE_TIMEOUT_SECONDS: ${REQUEST_BODY_IDLE_TIMEOUT_SECONDS:-120}
     volumes:
       - ./api.yaml:/home/api.yaml
       - ./data:/home/data

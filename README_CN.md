@@ -109,6 +109,19 @@ providers:
 
 客户端也可通过 `X-Prompt-Cache-Key`、`X-Session-Id` 或 `Conversation-Id` 指定自己的缓存域。默认关闭；短 Prompt 达不到上游最小缓存长度时，`cached_tokens: 0` 属正常现象。
 
+## 大请求体上传与超时
+
+上传请求体时，如果两个数据块之间超过 `REQUEST_BODY_IDLE_TIMEOUT_SECONDS`（默认 `15` 秒）没有新数据到达，Rust 运行时会中止请求并返回 `408 Request body upload timed out`。移动网络或慢速链路上传大请求体（长上下文、内联图片、文件内容）时容易出现中途停顿，可调大该值：
+
+```yaml
+services:
+  api-hub:
+    environment:
+      REQUEST_BODY_IDLE_TIMEOUT_SECONDS: "120"
+```
+
+网关前的 nginx 请同时将 `client_body_timeout` 设置为不小于该值的数值（例如 `client_body_timeout 300s;`），避免代理层先把连接断开。
+
 ## 模型别名
 
 在渠道的 `model` 或 `models` 列表中使用映射格式：

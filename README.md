@@ -64,6 +64,19 @@ providers:
 
 The feature is disabled by default. Use it only with upstreams that accept the relevant cache fields; short prompts may legitimately report zero cached tokens.
 
+## Large request uploads
+
+The Rust runtime aborts an upload when no request-body bytes arrive for `REQUEST_BODY_IDLE_TIMEOUT_SECONDS` (default `15`). Clients that upload very large bodies — long contexts, inline images, file payloads — over slow or mobile networks can pause longer than that between chunks; raise the value in that case:
+
+```yaml
+services:
+  api-hub:
+    environment:
+      REQUEST_BODY_IDLE_TIMEOUT_SECONDS: "120"
+```
+
+When the panel runs behind nginx, keep `client_body_timeout` at or above this value (for example `client_body_timeout 300s;`) so the proxy does not terminate the upload first.
+
 ## License
 
 Apache License 2.0. See [LICENSE](./LICENSE).
