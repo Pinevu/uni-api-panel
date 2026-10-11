@@ -115,6 +115,40 @@ def _merge_post_body_override_dict(target: dict, override: dict, *, removal_key:
             target[key] = copy.deepcopy(value)
 
 
+def apply_reasoning_effort_map(payload: dict, provider: dict) -> dict:
+    """Remap unsupported ``reasoning_effort`` levels onto supported ones.
+
+    Configured per provider via ``preferences.reasoning_effort_map`` (for
+    example ``{xhigh: high, max: high, minimal: low}``).  Handles both the
+    top-level ``reasoning_effort`` field and the nested ``reasoning.effort``
+    form used by the Responses protocol.
+    """
+    mapping = safe_get(provider, "preferences", "reasoning_effort_map", default={}) or {}
+    if not isinstance(mapping, dict) or not mapping:
+        return payload
+
+    def mapped(value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        for source, target in mapping.items():
+            if str(source).strip().lower() == normalized and isinstance(target, str):
+                return target
+        return None
+
+    replacement = mapped(payload.get("reasoning_effort"))
+    if replacement is not None:
+        payload["reasoning_effort"] = replacement
+
+    reasoning = payload.get("reasoning")
+    if isinstance(reasoning, dict):
+        replacement = mapped(reasoning.get("effort"))
+        if replacement is not None:
+            reasoning["effort"] = replacement
+
+    return payload
+
+
 def apply_post_body_parameter_overrides(
     payload: dict,
     provider: dict,
@@ -123,6 +157,11 @@ def apply_post_body_parameter_overrides(
     skip_keys: set[str] | None = None,
 ) -> dict:
     removal_key = "__remove__"
+
+    # Adapt client-side reasoning levels (for example Minis "极高" -> xhigh)
+    # to the levels this upstream accepts.  Runs regardless of whether the
+    # provider configured post_body_parameter_overrides at all.
+    apply_reasoning_effort_map(payload, provider)
 
     def normalize_removals(value) -> list[str | dict]:
         if isinstance(value, str):

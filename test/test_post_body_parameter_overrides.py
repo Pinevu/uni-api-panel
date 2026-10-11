@@ -551,3 +551,68 @@ def test_vertex_gemini_2_5_flash_reasoning_none_disables_thinking():
         "includeThoughts": False,
         "thinkingBudget": 0,
     }
+
+
+def test_reasoning_effort_map_remaps_unsupported_levels():
+    from uni_api.providers.overrides import apply_reasoning_effort_map
+
+    provider = {
+        "provider": "atria",
+        "base_url": "https://api.atria-asi.ai/v1",
+        "api": "test-key",
+        "model": ["Atria-Dawn-Preview"],
+        "preferences": {
+            "reasoning_effort_map": {
+                "xhigh": "high",
+                "extra_high": "high",
+                "max": "high",
+                "minimal": "low",
+            }
+        },
+    }
+
+    payload = {"model": "Atria-Dawn-Preview", "reasoning_effort": "xhigh"}
+    apply_reasoning_effort_map(payload, provider)
+    assert payload["reasoning_effort"] == "high"
+
+    # Supported levels pass through untouched.
+    payload = {"model": "Atria-Dawn-Preview", "reasoning_effort": "medium"}
+    apply_reasoning_effort_map(payload, provider)
+    assert payload["reasoning_effort"] == "medium"
+
+    # Nested Responses-style reasoning.effort is remapped too.
+    payload = {"model": "Atria-Dawn-Preview", "reasoning": {"effort": "max"}}
+    apply_reasoning_effort_map(payload, provider)
+    assert payload["reasoning"]["effort"] == "high"
+
+    # Case-insensitive matching.
+    payload = {"model": "Atria-Dawn-Preview", "reasoning_effort": "XHigh"}
+    apply_reasoning_effort_map(payload, provider)
+    assert payload["reasoning_effort"] == "high"
+
+    # Providers without a map are never modified.
+    payload = {"model": "gpt-5.4", "reasoning_effort": "xhigh"}
+    apply_reasoning_effort_map(payload, {"preferences": {}})
+    assert payload["reasoning_effort"] == "xhigh"
+
+
+def test_reasoning_effort_map_applies_through_gpt_payload_path():
+    request = RequestModel(
+        model="Atria-Dawn-Preview",
+        messages=[{"role": "user", "content": "hello"}],
+        reasoning_effort="xhigh",
+        stream=False,
+    )
+    provider = {
+        "provider": "atria",
+        "base_url": "https://api.atria-asi.ai/v1",
+        "api": "test-key",
+        "model": ["Atria-Dawn-Preview"],
+        "preferences": {
+            "reasoning_effort_map": {"xhigh": "high"},
+        },
+        "tools": False,
+    }
+
+    _, _, payload = asyncio.run(get_payload(request, "gpt", provider, api_key="test-key"))
+    assert payload["reasoning_effort"] == "high"

@@ -2681,6 +2681,7 @@ fn compile_payload(
             .or_insert(Value::String(String::new()));
     }
     apply_overrides(root, provider, request_model);
+    apply_reasoning_effort_map(root, provider);
     if engine == "codex" {
         strip_codex_fields(root);
         if wants_compact {
@@ -2782,6 +2783,48 @@ pub(crate) fn apply_overrides(
     apply_override_section(root, overrides, provider, true);
     if let Some(model) = overrides.get(request_model).and_then(Value::as_object) {
         apply_override_section(root, model, provider, false);
+    }
+}
+
+/// Remaps `reasoning_effort` values the upstream cannot accept (e.g. `xhigh`,
+/// `max`, `minimal`) onto a supported level.  Configured per provider via
+/// `preferences.reasoning_effort_map`, tolerating both the top-level
+/// `reasoning_effort` field and the nested `reasoning.effort` form so every
+/// wire protocol gets the same protection.
+pub(crate) fn apply_reasoning_effort_map(root: &mut Map<String, Value>, provider: &Provider) {
+    let Some(mapping) = provider
+        .preferences
+        .get("reasoning_effort_map")
+        .and_then(Value::as_object)
+    else {
+        return;
+    };
+
+    fn mapped(mapping: &Map<String, Value>, value: &Value) -> Option<String> {
+        let effort = value.as_str()?.trim().to_ascii_lowercase();
+        mapping.iter().find_map(|(from, to)| {
+            if !from.trim().eq_ignore_ascii_case(&effort) {
+                return None;
+            }
+            to.as_str().map(str::to_owned)
+        })
+    }
+
+    if let Some(replacement) = root
+        .get("reasoning_effort")
+        .and_then(|value| mapped(mapping, value))
+    {
+        root.insert("reasoning_effort".into(), Value::String(replacement));
+    }
+    if let Some(replacement) = root
+        .get("reasoning")
+        .and_then(Value::as_object)
+        .and_then(|reasoning| reasoning.get("effort"))
+        .and_then(|effort| mapped(mapping, effort))
+    {
+        if let Some(reasoning) = root.get_mut("reasoning").and_then(Value::as_object_mut) {
+            reasoning.insert("effort".into(), Value::String(replacement));
+        }
     }
 }
 
@@ -3865,6 +3908,42 @@ mod tests {
         assert!(payload.get("previous_response_id").is_none());
         assert!(payload["input"][0].get("id").is_none());
         assert!(payload["input"][0].get("cache_control").is_none());
+    }
+
+    #[test]
+    fn reasoning_effort_map_remaps_unsupported_levels() {
+        let mut provider = provider();
+        provider.preferences = Arc::new(Map::from_iter([(
+            "reasoning_effort_map".into(),
+            json!({"xhigh": "high", "max": "high", "minimal": "low"}),
+        )]));
+
+        let mut payload = json!({"reasoning_effort": "xhigh"});
+        apply_reasoning_effort_map(payload.as_object_mut().unwrap(), &provider);
+        assert_eq!(payload["reasoning_effort"], "high");
+
+        // Supported levels pass through untouched.
+        let mut payload = json!({"reasoning_effort": "medium"});
+        apply_reasoning_effort_map(payload.as_object_mut().unwrap(), &provider);
+        assert_eq!(payload["reasoning_effort"], "medium");
+
+        // Nested Responses-style reasoning.effort is remapped too.
+        let mut payload = json!({"reasoning": {"effort": "max"}});
+        apply_reasoning_effort_map(payload.as_object_mut().unwrap(), &provider);
+        assert_eq!(payload["reasoning"]["effort"], "high");
+
+        // Case-insensitive matching.
+        let mut payload = json!({"reasoning_effort": "XHigh"});
+        apply_reasoning_effort_map(payload.as_object_mut().unwrap(), &provider);
+        assert_eq!(payload["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn reasoning_effort_map_is_noop_without_configuration() {
+        let provider = provider();
+        let mut payload = json!({"reasoning_effort": "xhigh"});
+        apply_reasoning_effort_map(payload.as_object_mut().unwrap(), &provider);
+        assert_eq!(payload["reasoning_effort"], "xhigh");
     }
 
     #[test]

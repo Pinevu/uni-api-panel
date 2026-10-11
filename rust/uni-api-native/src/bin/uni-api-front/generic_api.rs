@@ -27,9 +27,9 @@ use crate::proxy::{
 use crate::request_spool::{SpoolObservation, StoredBody};
 use crate::resources::MemoryReservation;
 use crate::responses_native::{
-    apply_overrides, apply_prompt_cache_affinity, classify_provider_failure,
-    compute_retry_count, extract_api_key, request_id, FailedRoute, Provider,
-    ProviderKeySelection, CODEX_USER_AGENT,
+    apply_overrides, apply_prompt_cache_affinity, apply_reasoning_effort_map,
+    classify_provider_failure, compute_retry_count, extract_api_key, request_id, FailedRoute,
+    Provider, ProviderKeySelection, CODEX_USER_AGENT,
 };
 
 const ALPHA_SEARCH_ENDPOINT: &str = "/v1/alpha/search";
@@ -1510,6 +1510,7 @@ fn build_attempt(
         } else {
             apply_prompt_cache_affinity(root, provider, incoming_headers, request_model, &engine);
             apply_overrides(root, provider, request_model);
+            apply_reasoning_effort_map(root, provider);
             // Strip image_url parts when the provider's `image` preference is disabled
             // (e.g. text-only models on the opencode gateway such as deepseek-v4-flash).
             // The image preference is stored in the compiled provider snapshot; when set
