@@ -371,16 +371,24 @@ pub struct QuotaReport {
     pub groups: Vec<QuotaGroup>,
 }
 
+#[derive(Clone)]
+pub struct QuotaWindow {
+    pub remaining: f64,
+    pub reset_time: Option<String>,
+}
+
 pub struct QuotaGroup {
     pub key: &'static str,
     pub label: &'static str,
-    pub remaining: f64,
-    pub reset_time: Option<String>,
-    /// Weekly window, when the upstream exposes one (currently rare).
-    pub weekly_remaining: Option<f64>,
-    pub weekly_reset: Option<String>,
+    pub five_hour: Option<QuotaWindow>,
+    pub weekly: Option<QuotaWindow>,
     pub models: Vec<String>,
 }
+
+const QUOTA_SUMMARY_URLS: [&str; 2] = [
+    "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+    "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+];
 
 impl AntigravityOAuth {
     pub async fn fetch_quota(
@@ -393,84 +401,18 @@ impl AntigravityOAuth {
         let client = build_client(proxy)?;
 
         let (plan, tier_id) = fetch_plan(&client, &access).await;
-        let buckets = fetch_quota_buckets(&client, &access, project).await?;
+        let models = fetch_group_models(&client, &access, project).await;
 
-        let mut gemini = QuotaGroup {
-            key: "gemini",
-            label: "Gemini 模型",
-            remaining: 1.0,
-            reset_time: None,
-            weekly_remaining: None,
-            weekly_reset: None,
-            models: Vec::new(),
-        };
-        let mut claude = QuotaGroup {
-            key: "claude",
-            label: "Claude 和 GPT 模型",
-            remaining: 1.0,
-            reset_time: None,
-            weekly_remaining: None,
-            weekly_reset: None,
-            models: Vec::new(),
-        };
-        let mut seen_gemini = false;
-        let mut seen_claude = false;
-
-        for bucket in buckets {
-            let model = bucket
-                .get("modelId")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            if model.is_empty() {
-                continue;
-            }
-            let remaining = bucket
-                .get("remainingFraction")
-                .and_then(Value::as_f64)
-                .unwrap_or(1.0)
-                .clamp(0.0, 1.0);
-            let reset = bucket
-                .get("resetTime")
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            let lower = model.to_ascii_lowercase();
-            let is_claude = lower.starts_with("claude") || lower.contains("gpt");
-            let group = if is_claude { &mut claude } else { &mut gemini };
-            let seen = if is_claude {
-                &mut seen_claude
-            } else {
-                &mut seen_gemini
-            };
-            let token_type = bucket
-                .get("tokenType")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_ascii_uppercase();
-            let is_weekly = token_type.contains("WEEK") || token_type.contains("WTUW");
-            if is_weekly {
-                group.weekly_remaining = Some(match group.weekly_remaining {
-                    Some(current) => current.min(remaining),
-                    None => remaining,
-                });
-                group.weekly_reset = earliest_reset(group.weekly_reset.clone(), reset);
-            } else if !*seen {
-                group.remaining = remaining;
-                group.reset_time = reset;
-                *seen = true;
-            } else {
-                group.remaining = group.remaining.min(remaining);
-                group.reset_time = earliest_reset(group.reset_time.clone(), reset);
-            }
-            group.models.push(model.to_owned());
+        if let Some(groups) = fetch_quota_summary(&client, &access, project).await {
+            return Ok(QuotaReport {
+                plan,
+                tier_id,
+                groups: attach_models(groups, models),
+            });
         }
 
-        let mut groups = Vec::new();
-        if seen_gemini {
-            groups.push(gemini);
-        }
-        if seen_claude {
-            groups.push(claude);
-        }
+        // Older accounts only expose the per-model five-hour buckets.
+        let groups = fetch_legacy_groups(&client, &access, project, models).await?;
         Ok(QuotaReport {
             plan,
             tier_id,
@@ -479,61 +421,136 @@ impl AntigravityOAuth {
     }
 }
 
-async fn fetch_plan(client: &reqwest::Client, access: &str) -> (String, String) {
-    let response = client
-        .post(LOAD_CODE_ASSIST_URL)
-        .header("authorization", format!("Bearer {access}"))
-        .header("content-type", "application/json")
-        .header("user-agent", USER_AGENT)
-        .timeout(Duration::from_secs(20))
-        .body(r#"{"metadata":{"ideType":"ANTIGRAVITY"}}"#)
-        .send()
-        .await;
-    let Ok(response) = response else {
-        return ("Free".into(), "free-tier".into());
-    };
-    if !response.status().is_success() {
-        return ("Free".into(), "free-tier".into());
-    }
-    let Ok(payload) = response.json::<Value>().await else {
-        return ("Free".into(), "free-tier".into());
-    };
-    let tier = payload.get("paidTier").filter(|value| value.is_object());
-    let Some(tier) = tier else {
-        return ("Free".into(), "free-tier".into());
-    };
-    let name = tier
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or("Free")
-        .to_owned();
-    let id = tier
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or("free-tier")
-        .to_owned();
-    (short_plan_name(&name), id)
+fn window_from(value: &Value) -> Option<QuotaWindow> {
+    let remaining = value.get("remainingFraction").and_then(Value::as_f64)?;
+    Some(QuotaWindow {
+        remaining: remaining.clamp(0.0, 1.0),
+        reset_time: value
+            .get("resetTime")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    })
 }
 
-/// Map Google's verbose tier names onto the short labels used in the panel.
-fn short_plan_name(name: &str) -> String {
-    let lower = name.to_ascii_lowercase();
-    if lower.contains("ultra") {
-        "Ultra".into()
-    } else if lower.contains("pro") {
-        "Pro".into()
-    } else if lower.contains("free") || lower.is_empty() {
-        "Free".into()
-    } else {
-        name.to_owned()
-    }
-}
-
-async fn fetch_quota_buckets(
+/// `retrieveUserQuotaSummary` returns one entry per model family with both a
+/// weekly and a five-hour bucket -- the same data the reference panel shows.
+async fn fetch_quota_summary(
     client: &reqwest::Client,
     access: &str,
     project: &str,
-) -> Result<Vec<Value>, String> {
+) -> Option<Vec<QuotaGroup>> {
+    let body = if project.trim().is_empty() {
+        "{}".to_owned()
+    } else {
+        serde_json::json!({ "project": project.trim() }).to_string()
+    };
+    for url in QUOTA_SUMMARY_URLS {
+        let response = client
+            .post(url)
+            .header("authorization", format!("Bearer {access}"))
+            .header("content-type", "application/json")
+            .header("user-agent", USER_AGENT)
+            .timeout(Duration::from_secs(25))
+            .body(body.clone())
+            .send()
+            .await;
+        let Ok(response) = response else { continue };
+        if !response.status().is_success() {
+            continue;
+        }
+        let Ok(payload) = response.json::<Value>().await else {
+            continue;
+        };
+        let Some(entries) = payload.get("groups").and_then(Value::as_array) else {
+            continue;
+        };
+        let mut gemini = QuotaGroup {
+            key: "gemini",
+            label: "Gemini 模型",
+            five_hour: None,
+            weekly: None,
+            models: Vec::new(),
+        };
+        let mut claude = QuotaGroup {
+            key: "claude",
+            label: "Claude 和 GPT 模型",
+            five_hour: None,
+            weekly: None,
+            models: Vec::new(),
+        };
+        let mut seen_gemini = false;
+        let mut seen_claude = false;
+        for entry in entries {
+            let display = entry
+                .get("displayName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let buckets = entry
+                .get("buckets")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let looks_claude = display.contains("claude")
+                || display.contains("gpt")
+                || buckets.iter().any(|bucket| {
+                    bucket
+                        .get("bucketId")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| id.starts_with("3p"))
+                });
+            let group = if looks_claude { &mut claude } else { &mut gemini };
+            let seen = if looks_claude {
+                &mut seen_claude
+            } else {
+                &mut seen_gemini
+            };
+            if !*seen {
+                for bucket in &buckets {
+                    let window = bucket
+                        .get("window")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_ascii_lowercase();
+                    let Some(parsed) = window_from(bucket) else {
+                        continue;
+                    };
+                    if window.contains("week") {
+                        group.weekly = Some(match group.weekly.take() {
+                            Some(existing) if existing.remaining <= parsed.remaining => existing,
+                            _ => parsed,
+                        });
+                    } else {
+                        group.five_hour = Some(match group.five_hour.take() {
+                            Some(existing) if existing.remaining <= parsed.remaining => existing,
+                            _ => parsed,
+                        });
+                    }
+                }
+                *seen = true;
+            }
+        }
+        let mut groups = Vec::new();
+        if seen_gemini {
+            groups.push(gemini);
+        }
+        if seen_claude {
+            groups.push(claude);
+        }
+        if !groups.is_empty() {
+            return Some(groups);
+        }
+    }
+    None
+}
+
+/// Legacy fallback: per-model five-hour buckets from `retrieveUserQuota`.
+async fn fetch_legacy_groups(
+    client: &reqwest::Client,
+    access: &str,
+    project: &str,
+    models: Vec<(String, bool)>,
+) -> Result<Vec<QuotaGroup>, String> {
     let body = if project.trim().is_empty() {
         "{}".to_owned()
     } else {
@@ -559,19 +576,176 @@ async fn fetch_quota_buckets(
         .json()
         .await
         .map_err(|error| format!("Antigravity quota response is not JSON: {error}"))?;
-    Ok(payload
+    let buckets = payload
         .get("buckets")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default())
+        .unwrap_or_default();
+
+    let mut gemini = QuotaGroup {
+        key: "gemini",
+        label: "Gemini 模型",
+        five_hour: None,
+        weekly: None,
+        models: Vec::new(),
+    };
+    let mut claude = QuotaGroup {
+        key: "claude",
+        label: "Claude 和 GPT 模型",
+        five_hour: None,
+        weekly: None,
+        models: Vec::new(),
+    };
+    for bucket in buckets {
+        let model = bucket
+            .get("modelId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if model.is_empty() {
+            continue;
+        }
+        let lower = model.to_ascii_lowercase();
+        let is_claude = lower.starts_with("claude") || lower.contains("gpt");
+        let Some(parsed) = window_from(&bucket) else {
+            continue;
+        };
+        let group = if is_claude { &mut claude } else { &mut gemini };
+        group.five_hour = Some(match group.five_hour.take() {
+            Some(existing) if existing.remaining <= parsed.remaining => existing,
+            _ => parsed,
+        });
+        group.models.push(model.to_owned());
+    }
+    let mut groups = Vec::new();
+    if gemini.five_hour.is_some() {
+        groups.push(gemini);
+    }
+    if claude.five_hour.is_some() {
+        groups.push(claude);
+    }
+    for group in groups.iter_mut() {
+        if group.models.is_empty() {
+            group.models = models
+                .iter()
+                .filter(|(_, is_claude)| *is_claude == (group.key == "claude"))
+                .map(|(name, _)| name.clone())
+                .collect();
+        }
+    }
+    Ok(groups)
 }
 
-fn earliest_reset(current: Option<String>, candidate: Option<String>) -> Option<String> {
-    match (current, candidate) {
-        (Some(a), Some(b)) => Some(if a <= b { a } else { b }),
-        (Some(a), None) => Some(a),
-        (None, value) => value,
+/// Per-model list used only for the "N models" caption.
+async fn fetch_group_models(
+    client: &reqwest::Client,
+    access: &str,
+    project: &str,
+) -> Vec<(String, bool)> {
+    let body = if project.trim().is_empty() {
+        "{}".to_owned()
+    } else {
+        serde_json::json!({ "project": project.trim() }).to_string()
+    };
+    let response = client
+        .post("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
+        .header("authorization", format!("Bearer {access}"))
+        .header("content-type", "application/json")
+        .header("user-agent", USER_AGENT)
+        .timeout(Duration::from_secs(20))
+        .body(body)
+        .send()
+        .await;
+    let Ok(response) = response else {
+        return Vec::new();
+    };
+    if !response.status().is_success() {
+        return Vec::new();
     }
+    let Ok(payload) = response.json::<Value>().await else {
+        return Vec::new();
+    };
+    payload
+        .get("buckets")
+        .and_then(Value::as_array)
+        .map(|buckets| {
+            buckets
+                .iter()
+                .filter_map(|bucket| {
+                    let model = bucket.get("modelId").and_then(Value::as_str)?;
+                    let lower = model.to_ascii_lowercase();
+                    let is_claude = lower.starts_with("claude") || lower.contains("gpt");
+                    Some((model.to_owned(), is_claude))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn attach_models(
+    mut groups: Vec<QuotaGroup>,
+    models: Vec<(String, bool)>,
+) -> Vec<QuotaGroup> {
+    if models.is_empty() {
+        return groups;
+    }
+    for group in groups.iter_mut() {
+        let want_claude = group.key == "claude";
+        group.models = models
+            .iter()
+            .filter(|(_, is_claude)| *is_claude == want_claude)
+            .map(|(name, _)| name.clone())
+            .collect();
+    }
+    groups
+}
+
+/// Map Google's verbose tier names onto the short labels used in the panel.
+fn short_plan_name(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("ultra") {
+        "Ultra".into()
+    } else if lower.contains("pro") {
+        "Pro".into()
+    } else if lower.contains("free") || lower.is_empty() {
+        "Free".into()
+    } else {
+        name.to_owned()
+    }
+}
+
+async fn fetch_plan(client: &reqwest::Client, access: &str) -> (String, String) {
+    let response = client
+        .post(LOAD_CODE_ASSIST_URL)
+        .header("authorization", format!("Bearer {access}"))
+        .header("content-type", "application/json")
+        .header("user-agent", USER_AGENT)
+        .timeout(Duration::from_secs(20))
+        .body(r#"{"metadata":{"ideType":"ANTIGRAVITY"}}"#)
+        .send()
+        .await;
+    let Ok(response) = response else {
+        return ("Free".into(), "free-tier".into());
+    };
+    if !response.status().is_success() {
+        return ("Free".into(), "free-tier".into());
+    }
+    let Ok(payload) = response.json::<Value>().await else {
+        return ("Free".into(), "free-tier".into());
+    };
+    let Some(tier) = payload.get("paidTier").filter(|value| value.is_object()) else {
+        return ("Free".into(), "free-tier".into());
+    };
+    let name = tier
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("Free")
+        .to_owned();
+    let id = tier
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("free-tier")
+        .to_owned();
+    (short_plan_name(&name), id)
 }
 
 #[cfg(test)]

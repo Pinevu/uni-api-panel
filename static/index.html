@@ -3331,8 +3331,8 @@ function renderQuota(idx) {
   const groups = data.groups || [];
   const planKey = (data.plan || '').toLowerCase();
   const planClass = planKey.includes('ultra') ? 'ultra' : planKey.includes('pro') ? 'pro' : 'free';
-  const windowRow = (label, fraction, resetTime) => {
-    if (fraction === null || fraction === undefined || Number.isNaN(Number(fraction))) {
+  const windowRow = (label, window) => {
+    if (!window || window.remaining === null || window.remaining === undefined) {
       return `<div class="quota-window">
         <div class="quota-window-head">
           <span class="quota-window-label">${label}</span>
@@ -3341,11 +3341,11 @@ function renderQuota(idx) {
         <div class="quota-bar"><span class="quota-bar-fill none" style="width:0%"></span></div>
       </div>`;
     }
-    const value = Math.max(0, Math.min(1, Number(fraction)));
+    const value = Math.max(0, Math.min(1, Number(window.remaining)));
     const percent = Math.round(value * 100);
     const available = value >= 0.999;
     const text = available ? '额度可用' : `剩余 ${percent}%`;
-    const reset = quotaCountdown(resetTime);
+    const reset = quotaCountdown(window.reset_time);
     return `<div class="quota-window">
       <div class="quota-window-head">
         <span class="quota-window-label">${label}</span>
@@ -3355,9 +3355,9 @@ function renderQuota(idx) {
     </div>`;
   };
   const rows = groups.map(group => `<div class="quota-group">
-      <div class="quota-group-title">${esc(group.label)} · ${group.model_count || 0} 个模型</div>
-      ${windowRow('5 小时限额', group.remaining, group.reset_time)}
-      ${windowRow('周限额', group.weekly_remaining, group.weekly_reset)}
+      <div class="quota-group-title">${esc(group.label)}${group.model_count ? ` · ${group.model_count} 个模型` : ''}</div>
+      ${windowRow('5 小时限额', group.five_hour)}
+      ${windowRow('周限额', group.weekly)}
     </div>`).join('');
   box.innerHTML = `
     <div class="quota-card">
