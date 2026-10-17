@@ -2208,10 +2208,11 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
             </div>
-            <button class="btn btn-dark btn-sm oauth-open-btn" onclick="startAntigravityOAuth()">
+            <a id="chOauthOpenLink" class="btn btn-dark btn-sm oauth-open-btn" href="#" target="_blank" rel="noopener" onclick="handleOauthOpen(event)">
               打开链接
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="margin-left:5px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            </button>
+            </a>
+            <div class="oauth-hint" style="margin:7px 0 0">若未自动跳转，可长按按钮选择「在新标签页打开」，或点上方复制按钮手动打开。</div>
           </div>
         </div>
 
@@ -3233,7 +3234,7 @@ function openChannelEditor(i, presetType) {
   $('#chHeaders').value = '';
   $('#chAuthMode').value = preset === 'antigravity' ? 'antigravity_oauth' : 'apikey';
   $('#chOauthCallback').value = '';
-  $('#chOauthUrlText').textContent = '点击下方按钮生成授权链接';
+  applyOauthUrl('');
   renderOauthStatus();
   setPromptCacheAffinity({});
 
@@ -3306,6 +3307,10 @@ function syncAuthModeUI() {
     $('#chUrl').value = 'https://daily-cloudcode-pa.googleapis.com';
   }
   renderOauthStatus();
+  if (isOauth && !chOauthState.refresh_token) {
+    applyOauthUrl(chOauthState.auth_url || '');
+    prepareOauthUrl(false);
+  }
 }
 
 function oauthStatusEl() {
@@ -3344,18 +3349,66 @@ async function oauthAdminPost(path, body) {
   return await response.json();
 }
 
-async function startAntigravityOAuth() {
-  try {
-    const data = await oauthAdminPost('/v1/oauth/antigravity/start', {});
-    chOauthState.auth_url = data.auth_url || '';
-    $('#chOauthUrlText').textContent = shortUrl(chOauthState.auth_url);
-    $('#chOauthUrlText').title = chOauthState.auth_url;
-    renderOauthStatus();
-    window.open(data.auth_url, '_blank');
-    showToast('已打开授权页，登录后粘贴回调 URL');
-  } catch (e) {
-    showToast('生成授权链接失败: ' + e.message);
+let oauthUrlPending = null;
+
+function applyOauthUrl(url) {
+  chOauthState.auth_url = url || '';
+  const link = $('#chOauthOpenLink');
+  if (link) {
+    if (url) {
+      link.setAttribute('href', url);
+      link.removeAttribute('aria-disabled');
+    } else {
+      link.setAttribute('href', '#');
+    }
   }
+  const text = $('#chOauthUrlText');
+  if (text) {
+    text.textContent = url ? shortUrl(url) : '正在生成授权链接…';
+    text.title = url || '';
+  }
+  renderOauthStatus();
+}
+
+/* Pre-generate the consent URL so the anchor already has a real href when the
+   user taps it.  iOS blocks window.open() after an await, so the link must be
+   a genuine anchor rather than a script-triggered popup. */
+async function prepareOauthUrl(force) {
+  if (!force && chOauthState.auth_url) return chOauthState.auth_url;
+  if (oauthUrlPending) return oauthUrlPending;
+  $('#chOauthUrlText').textContent = '正在生成授权链接…';
+  oauthUrlPending = (async () => {
+    try {
+      const data = await oauthAdminPost('/v1/oauth/antigravity/start', {});
+      applyOauthUrl(data.auth_url || '');
+      return data.auth_url || '';
+    } catch (e) {
+      $('#chOauthUrlText').textContent = '生成失败，点击重试';
+      showToast('生成授权链接失败: ' + e.message);
+      return '';
+    } finally {
+      oauthUrlPending = null;
+    }
+  })();
+  return oauthUrlPending;
+}
+
+async function handleOauthOpen(event) {
+  if (chOauthState.auth_url) {
+    // Real href: let the browser handle the navigation itself.
+    return;
+  }
+  event.preventDefault();
+  const url = await prepareOauthUrl(false);
+  if (url) showToast('链接已生成，请再点一次「打开链接」');
+}
+
+function openAntigravityOAuth() {
+  prepareOauthUrl(false).then(url => {
+    if (!url) return;
+    const opened = window.open(url, '_blank');
+    if (!opened) location.href = url;
+  });
 }
 
 function copyOauthUrl() {
