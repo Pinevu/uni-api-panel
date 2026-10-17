@@ -1945,8 +1945,35 @@ body {
     </div>
 
     <div class="form-group">
+      <label class="form-label">认证方式</label>
+      <select class="filter-select" id="chAuthMode" onchange="syncAuthModeUI()" style="width:100%;padding:9px 12px">
+        <option value="apikey">API Key / Token</option>
+        <option value="antigravity_oauth">Google OAuth（Antigravity / Gemini）</option>
+      </select>
+    </div>
+
+    <div class="form-group" id="chApiKeyGroup">
       <label class="form-label">API Key / Token</label>
       <input class="modal-input mono" id="chKey" type="text" placeholder="sk-... 或留空">
+    </div>
+
+    <div class="form-group" id="chOauthPanel" style="display:none">
+      <div style="padding:12px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-md)">
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.75">
+          <b>Google OAuth 登录</b>（Antigravity 接口）<br>
+          1. 点「打开授权页」并登录 Google 账号<br>
+          2. 授权后浏览器会跳到 <span class="mono">localhost:51121</span>，页面打不开是正常的<br>
+          3. 复制地址栏完整链接（或其中的 code）粘贴到下面
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="startAntigravityOAuth()">打开授权页</button>
+          <button class="btn btn-outline btn-sm" onclick="importAntigravityRefreshToken()">粘贴 refresh_token</button>
+          <button class="btn btn-outline btn-sm" onclick="fillAntigravityModels()">填入推荐模型</button>
+        </div>
+        <textarea class="modal-input mono" id="chOauthCode" rows="2" placeholder="粘贴回调链接：http://localhost:51121/oauth-callback?code=... 或直接粘贴 code" style="margin-top:10px"></textarea>
+        <button class="btn btn-primary btn-sm" onclick="exchangeAntigravityCode()" style="margin-top:8px">导入授权码</button>
+        <div id="chOauthStatus" style="font-size:12px;color:var(--text-muted);margin-top:8px">未登录</div>
+      </div>
     </div>
 
     <div class="form-group">
@@ -2124,6 +2151,7 @@ let chSelectedSet = new Set();
 let chAliasMap = {}; // { [upstream_model]: custom_alias }
 let chSelectionInitialized = false; // 是否已有明确的模型选择意图
 let chCustomHeaders = {}; // 当前渠道的固定上游请求头
+let chOauthState = { refresh_token: '', project_id: '', email: '' }; // Antigravity OAuth 凭据
 
 function parseCustomHeaders(text) {
   const headers = {};
@@ -2929,7 +2957,11 @@ function openChannelEditor(i) {
   $('#chManualWrap').style.display = 'none';
   chAliasMap = {};
   chCustomHeaders = {};
+  chOauthState = { refresh_token: '', project_id: '', email: '' };
   $('#chHeaders').value = '';
+  $('#chAuthMode').value = 'apikey';
+  $('#chOauthCode').value = '';
+  renderOauthStatus();
   setPromptCacheAffinity({});
 
   if (isNew) {
@@ -2946,6 +2978,16 @@ function openChannelEditor(i) {
     $('#chName').value = p.provider || '';
     $('#chUrl').value = p.base_url || '';
     $('#chKey').value = p.api || '';
+    const oauth = p.preferences?.oauth;
+    if (oauth && typeof oauth === 'object' && oauth.refresh_token) {
+      chOauthState = {
+        refresh_token: oauth.refresh_token || '',
+        project_id: oauth.project_id || '',
+        email: oauth.email || ''
+      };
+      $('#chAuthMode').value = 'antigravity_oauth';
+      renderOauthStatus();
+    }
     setChannelCustomHeaders(p.preferences?.headers || p.headers || {});
     setPromptCacheAffinity(p.preferences || {});
     const rawList = p.models || p.model || [];
@@ -2963,8 +3005,110 @@ function openChannelEditor(i) {
     updateManualTextarea();
     $('#chFetchStatus').textContent = `共配置 ${chSelectedSet.size} 个模型`;
   }
+  syncAuthModeUI();
   renderChChips();
   $('#chModal').classList.add('show');
+}
+
+/* ==========================================================================
+   Antigravity（Google OAuth）渠道支持
+   ========================================================================== */
+function adminBearer() {
+  return (configData?.api_keys || [])
+    .filter(a => (a.role || '').toLowerCase() === 'admin')
+    .map(a => a.api)[0] || localStorage.getItem('uh_key') || '';
+}
+
+function syncAuthModeUI() {
+  const isOauth = $('#chAuthMode').value === 'antigravity_oauth';
+  $('#chApiKeyGroup').style.display = isOauth ? 'none' : '';
+  $('#chOauthPanel').style.display = isOauth ? '' : 'none';
+  if (isOauth && !$('#chUrl').value.trim()) {
+    $('#chUrl').value = 'https://daily-cloudcode-pa.googleapis.com';
+  }
+  renderOauthStatus();
+}
+
+function renderOauthStatus() {
+  const el = $('#chOauthStatus');
+  if (!el) return;
+  if (chOauthState.refresh_token) {
+    const email = chOauthState.email || '已导入账号';
+    const project = chOauthState.project_id ? ` · 项目 ${chOauthState.project_id}` : ' · 项目未识别';
+    el.innerHTML = `<span style="color:var(--success)">✓ 已登录 ${esc(email)}${esc(project)}</span>`;
+  } else {
+    el.textContent = '未登录';
+  }
+}
+
+async function oauthAdminPost(path, body) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + adminBearer() },
+    body: JSON.stringify(body || {})
+  });
+  if (!response.ok) throw new Error((await response.text()) || ('HTTP ' + response.status));
+  return await response.json();
+}
+
+async function startAntigravityOAuth() {
+  try {
+    const data = await oauthAdminPost('/v1/oauth/antigravity/start', {});
+    window.open(data.auth_url, '_blank');
+    showToast('已打开授权页，登录后把回调链接粘回来');
+  } catch (e) {
+    showToast('生成授权链接失败: ' + e.message);
+  }
+}
+
+async function exchangeAntigravityCode() {
+  const code = $('#chOauthCode').value.trim();
+  if (!code) return showToast('请先粘贴回调链接或授权码');
+  try {
+    const data = await oauthAdminPost('/v1/oauth/antigravity/exchange', { code });
+    chOauthState = {
+      refresh_token: data.refresh_token || '',
+      project_id: data.project_id || '',
+      email: data.email || ''
+    };
+    renderOauthStatus();
+    if (chOauthState.project_id) showToast('Google 账号已导入');
+    else showToast('登录成功，但未识别到项目 ID');
+  } catch (e) {
+    showToast('导入失败: ' + e.message);
+  }
+}
+
+async function importAntigravityRefreshToken() {
+  const token = prompt('粘贴 Antigravity 的 refresh_token：');
+  if (!token || !token.trim()) return;
+  try {
+    const data = await oauthAdminPost('/v1/oauth/antigravity/import', { refresh_token: token.trim() });
+    chOauthState = {
+      refresh_token: data.refresh_token || token.trim(),
+      project_id: data.project_id || '',
+      email: data.email || ''
+    };
+    renderOauthStatus();
+    showToast('refresh_token 已导入');
+  } catch (e) {
+    showToast('导入失败: ' + e.message);
+  }
+}
+
+function fillAntigravityModels() {
+  const defaults = [
+    'gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low',
+    'gemini-3-flash', 'gemini-3.1-flash-lite',
+    'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite',
+    'claude-opus-4-6-thinking', 'claude-sonnet-4-6'
+  ];
+  chAllModels = [...new Set([...chAllModels, ...defaults])].sort();
+  defaults.forEach(m => chSelectedSet.add(m));
+  chSelectionInitialized = true;
+  renderChChips();
+  updateManualTextarea();
+  showToast(`已填入 ${defaults.length} 个推荐模型`);
 }
 
 function closeChModal() {
@@ -3148,6 +3292,10 @@ async function fetchProviderModels() {
   const url = $('#chUrl').value.trim();
   const key = $('#chKey').value.trim();
   if (!url) return showToast('请先填写 API Base URL');
+  if ($('#chAuthMode').value === 'antigravity_oauth') {
+    showToast('OAuth 渠道请点「填入推荐模型」，或稍后在模型列表手动补充');
+    return;
+  }
 
   $('#chFetchBtn').disabled = true;
   $('#chFetchStatus').innerHTML = `<span style="color:var(--primary)">⏳ 正在连接上游拉取模型列表...</span>`;
@@ -3198,9 +3346,17 @@ async function fetchProviderModels() {
 
 function saveChannel() {
   const name = $('#chName').value.trim();
-  const url = $('#chUrl').value.trim();
-  const key = $('#chKey').value.trim();
+  const authMode = $('#chAuthMode').value;
+  const isOauth = authMode === 'antigravity_oauth';
+  let url = $('#chUrl').value.trim();
+  let key = $('#chKey').value.trim();
   updateChannelCustomHeaders();
+
+  if (isOauth) {
+    if (!chOauthState.refresh_token) return showToast('请先完成 Google 登录或导入 refresh_token');
+    if (!url) url = 'https://daily-cloudcode-pa.googleapis.com';
+    key = 'oauth';
+  }
 
   const models = [...chSelectedSet].map(m => {
     const alias = (chAliasMap[m] || '').trim();
@@ -3216,6 +3372,15 @@ function saveChannel() {
   const idx = +$('#chModal').dataset.index;
   const previous = idx >= 0 ? (configData.providers[idx] || {}) : {};
   const preferences = { ...(previous.preferences || {}) };
+  if (isOauth) {
+    preferences.oauth = {
+      refresh_token: chOauthState.refresh_token,
+      project_id: chOauthState.project_id || '',
+      email: chOauthState.email || ''
+    };
+  } else {
+    delete preferences.oauth;
+  }
   if (Object.keys(chCustomHeaders).length > 0) {
     preferences.headers = { ...chCustomHeaders };
   } else {
@@ -3241,6 +3406,11 @@ function saveChannel() {
     models,
     model: models
   };
+  if (isOauth) {
+    provider.engine = 'antigravity';
+  } else if ((provider.engine || '').toLowerCase() === 'antigravity') {
+    delete provider.engine;
+  }
   delete provider.headers;
   if (Object.keys(preferences).length > 0) {
     provider.preferences = preferences;

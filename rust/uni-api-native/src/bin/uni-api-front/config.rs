@@ -689,6 +689,9 @@ fn compile_provider(value: &Value) -> Option<Value> {
 
 fn infer_engine(base_url: &str) -> String {
     let lower = base_url.trim().to_ascii_lowercase();
+    if lower.contains("cloudcode-pa.googleapis.com") {
+        return "antigravity".into();
+    }
     if lower.contains("/v1/messages") || lower.contains("/claude/") {
         return "claude".into();
     }

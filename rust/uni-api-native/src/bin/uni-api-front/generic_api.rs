@@ -371,6 +371,29 @@ pub async fn handle(state: AppState, request: Request, resource_wait: Duration) 
                 }
             }
         }
+        if provider.engine.eq_ignore_ascii_case("antigravity") {
+            let refresh_token = provider
+                .preferences
+                .get("oauth")
+                .and_then(|value| value.get("refresh_token"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            match state
+                .antigravity_oauth
+                .resolve(
+                    refresh_token,
+                    provider.preferences.get("proxy").and_then(Value::as_str),
+                )
+                .await
+            {
+                Ok(token) => provider_key = token,
+                Err(error) => {
+                    last_status = StatusCode::UNAUTHORIZED;
+                    last_detail = error;
+                    continue;
+                }
+            }
+        }
         let mut prepared = match build_attempt(
             &provider,
             &provider_key,
@@ -1296,6 +1319,38 @@ fn build_attempt(
                 provider_stream,
             )
         }
+        "antigravity" if wire_path == "/v1/chat/completions" => {
+            let effort = payload
+                .get("reasoning_effort")
+                .or_else(|| payload.pointer("/reasoning/effort"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let mut gemini_payload = chat_to_gemini(&payload, original_model)?;
+            if let Some(effort) = effort {
+                apply_gemini_thinking_level(&mut gemini_payload, &effort);
+            }
+            let project = provider
+                .preferences
+                .get("oauth")
+                .and_then(|value| value.get("project_id"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            if project.is_empty() {
+                return Err("Antigravity provider requires preferences.oauth.project_id".into());
+            }
+            payload = json!({
+                "project": project,
+                "request": gemini_payload,
+                "model": original_model,
+            });
+            (
+                antigravity_url(provider.base_url.as_ref(), provider_stream)?,
+                ResponseAdapter::GeminiToChat,
+                provider_stream,
+            )
+        }
         "gemini" | "vertex" | "vertex-gemini" if wire_path == "/v1/chat/completions" => {
             payload = chat_to_gemini(&payload, original_model)?;
             (
@@ -1507,6 +1562,10 @@ fn build_attempt(
     if let Some(root) = payload.as_object_mut() {
         if is_alpha_search {
             sanitize_alpha_search_payload(root);
+        } else if engine == "antigravity" {
+            // Antigravity uses the Google envelope {project, request, model};
+            // client-side body knobs belong inside `request`, if anywhere.
+            apply_antigravity_request_tuning(root, provider);
         } else {
             apply_prompt_cache_affinity(root, provider, incoming_headers, request_model, &engine);
             apply_overrides(root, provider, request_model);
@@ -2408,6 +2467,12 @@ fn provider_headers(
             "authorization",
             HeaderValue::from_str(&format!("Bearer {provider_key}"))
                 .map_err(|_| "provider API key is not a valid header".to_owned())?,
+        );
+    }
+    if engine == "antigravity" {
+        headers.insert(
+            "user-agent",
+            HeaderValue::from_static(crate::antigravity_oauth::USER_AGENT),
         );
     }
     if let Ok(value) = HeaderValue::from_str(request_id) {
@@ -3709,6 +3774,12 @@ fn responses_to_chat(value: &Value, model: &str) -> Value {
 }
 
 fn gemini_to_chat(value: &Value, model: &str) -> Value {
+    // Antigravity wraps every payload in {"response": {...}}; normal Gemini
+    // responses are unwrapped already.
+    let value = value
+        .get("response")
+        .filter(|inner| inner.is_object())
+        .unwrap_or(value);
     let candidate = value
         .get("candidates")
         .and_then(Value::as_array)
@@ -4480,6 +4551,58 @@ fn gemini_url(base: &str, model: &str, key: &str, stream: bool) -> Result<String
     ));
     url.query_pairs_mut().clear().append_pair("key", key);
     Ok(url.to_string())
+}
+
+/// Translate an OpenAI reasoning effort level into Gemini's thinking level.
+/// Gemini only understands `low` / `high`, so anything above `medium` maps up
+/// and anything below `high` maps down.
+fn apply_gemini_thinking_level(payload: &mut Value, effort: &str) {
+    let normalized = effort.trim().to_ascii_lowercase().replace('-', "_");
+    let level = match normalized.as_str() {
+        "minimal" | "low" | "medium" | "none" => "low",
+        "high" | "xhigh" | "x_high" | "extra_high" | "max" | "highest" => "high",
+        _ => return,
+    };
+    let Some(root) = payload.as_object_mut() else {
+        return;
+    };
+    let generation = root
+        .entry("generationConfig")
+        .or_insert_with(|| json!({}));
+    let Some(generation) = generation.as_object_mut() else {
+        return;
+    };
+    let thinking = generation
+        .entry("thinkingConfig")
+        .or_insert_with(|| json!({}));
+    if let Some(thinking) = thinking.as_object_mut() {
+        thinking.insert("thinkingLevel".into(), json!(level));
+    }
+}
+
+/// Antigravity carries client-side knobs inside `request`, so apply the
+/// provider overrides there instead of on the outer envelope.
+fn apply_antigravity_request_tuning(root: &mut Map<String, Value>, provider: &Provider) {
+    let Some(request) = root.get_mut("request").and_then(Value::as_object_mut) else {
+        return;
+    };
+    apply_overrides(&mut *request, provider, "");
+    apply_reasoning_effort_map(&mut *request, provider);
+}
+
+fn antigravity_url(base: &str, stream: bool) -> Result<String, String> {
+    let base = base.trim().trim_end_matches('/');
+    let base = base
+        .trim_end_matches("/v1internal")
+        .trim_end_matches("/v1");
+    let operation = if stream {
+        "v1internal:streamGenerateContent?alt=sse"
+    } else {
+        "v1internal:generateContent"
+    };
+    Url::parse(base)
+        .map_err(|error| format!("invalid Antigravity base URL: {error}"))?;
+    Ok(format!("{base}/{operation}"))
 }
 
 fn vertex_gemini_url(

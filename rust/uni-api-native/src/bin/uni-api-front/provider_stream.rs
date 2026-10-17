@@ -548,6 +548,11 @@ impl StreamState {
     }
 
     fn gemini(&mut self, value: &Value) -> Vec<Value> {
+        // Antigravity streams wrap each chunk as {"response": {...}}.
+        let value = value
+            .get("response")
+            .filter(|inner| inner.is_object())
+            .unwrap_or(value);
         let mut output = Vec::new();
         for part in value
             .pointer("/candidates/0/content/parts")

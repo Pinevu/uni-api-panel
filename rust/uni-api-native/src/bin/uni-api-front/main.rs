@@ -1,3 +1,4 @@
+mod antigravity_oauth;
 mod codex_oauth;
 mod config;
 mod generic_api;

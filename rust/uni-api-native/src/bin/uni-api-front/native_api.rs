@@ -110,7 +110,12 @@ pub fn supports_mutation(method: &Method, path: &str) -> bool {
     *method == Method::POST
         && matches!(
             path,
-            "/v1/api_config/update" | "/v1/add_credits" | "/v1/channels/fetch_models"
+            "/v1/api_config/update"
+                | "/v1/add_credits"
+                | "/v1/channels/fetch_models"
+                | "/v1/oauth/antigravity/start"
+                | "/v1/oauth/antigravity/exchange"
+                | "/v1/oauth/antigravity/import"
         )
 }
 
@@ -303,7 +308,154 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
             list.dedup();
             json_response(StatusCode::OK, json!({"models": list}))
         }
+        "/v1/oauth/antigravity/start" => {
+            let state_value = crate::antigravity_oauth::random_state();
+            match crate::antigravity_oauth::AntigravityOAuth::build_auth_url(
+                &state_value,
+                crate::antigravity_oauth::DEFAULT_REDIRECT_URI,
+            ) {
+                Ok(auth_url) => json_response(
+                    StatusCode::OK,
+                    json!({
+                        "auth_url": auth_url,
+                        "state": state_value,
+                        "redirect_uri": crate::antigravity_oauth::DEFAULT_REDIRECT_URI,
+                    }),
+                ),
+                Err(error) => json_error(StatusCode::SERVICE_UNAVAILABLE, &error),
+            }
+        }
+        "/v1/oauth/antigravity/exchange" => {
+            let params = match read_json_object(request, 1024 * 1024).await {
+                Ok(params) => params,
+                Err(response) => return response,
+            };
+            let raw_code = params
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let Some(code) = crate::antigravity_oauth::AntigravityOAuth::parse_auth_code(raw_code)
+            else {
+                return json_error(StatusCode::BAD_REQUEST, "Authorization code is required");
+            };
+            let proxy = params
+                .get("proxy")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            match crate::antigravity_oauth::AntigravityOAuth::exchange_code(
+                &code,
+                crate::antigravity_oauth::DEFAULT_REDIRECT_URI,
+                proxy,
+            )
+            .await
+            {
+                Ok(bundle) => {
+                    let email = crate::antigravity_oauth::AntigravityOAuth::fetch_email(
+                        &bundle.access_token,
+                        proxy,
+                    )
+                    .await;
+                    let project = crate::antigravity_oauth::AntigravityOAuth::fetch_project(
+                        &bundle.access_token,
+                        proxy,
+                    )
+                    .await;
+                    match bundle.refresh_token.filter(|value| !value.trim().is_empty()) {
+                        Some(refresh_token) => json_response(
+                            StatusCode::OK,
+                            json!({
+                                "refresh_token": refresh_token,
+                                "access_token": bundle.access_token,
+                                "expires_in": bundle.expires_in,
+                                "email": email,
+                                "project_id": project,
+                            }),
+                        ),
+                        None => json_error(
+                            StatusCode::BAD_GATEWAY,
+                            "Google did not return a refresh token; re-run the consent flow",
+                        ),
+                    }
+                }
+                Err(error) => json_error(StatusCode::BAD_GATEWAY, &error),
+            }
+        }
+        "/v1/oauth/antigravity/import" => {
+            let params = match read_json_object(request, 1024 * 1024).await {
+                Ok(params) => params,
+                Err(response) => return response,
+            };
+            let refresh_token = params
+                .get("refresh_token")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            if refresh_token.is_empty() {
+                return json_error(StatusCode::BAD_REQUEST, "refresh_token is required");
+            }
+            let proxy = params
+                .get("proxy")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            let oauth = crate::antigravity_oauth::AntigravityOAuth::new();
+            match oauth.resolve(&refresh_token, proxy).await {
+                Ok(access_token) => {
+                    let email = crate::antigravity_oauth::AntigravityOAuth::fetch_email(
+                        &access_token,
+                        proxy,
+                    )
+                    .await;
+                    let project = match params
+                        .get("project_id")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    {
+                        Some(value) => Some(value.to_owned()),
+                        None => {
+                            crate::antigravity_oauth::AntigravityOAuth::fetch_project(
+                                &access_token,
+                                proxy,
+                            )
+                            .await
+                        }
+                    };
+                    json_response(
+                        StatusCode::OK,
+                        json!({
+                            "refresh_token": refresh_token,
+                            "email": email,
+                            "project_id": project,
+                        }),
+                    )
+                }
+                Err(error) => json_error(StatusCode::UNAUTHORIZED, &error),
+            }
+        }
         _ => json_error(StatusCode::NOT_FOUND, "Not found"),
+    }
+}
+
+async fn read_json_object(
+    request: Request,
+    limit: usize,
+) -> Result<serde_json::Map<String, Value>, Response<Body>> {
+    let body = to_bytes(request.into_body(), limit)
+        .await
+        .map_err(|error| {
+            json_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &format!("Request body is too large: {error}"),
+            )
+        })?;
+    match serde_json::from_slice::<Value>(&body) {
+        Ok(Value::Object(object)) => Ok(object),
+        Ok(_) => Err(json_error(StatusCode::BAD_REQUEST, "Body must be a JSON object")),
+        Err(error) => Err(json_error(
+            StatusCode::BAD_REQUEST,
+            &format!("Invalid JSON: {error}"),
+        )),
     }
 }
 
