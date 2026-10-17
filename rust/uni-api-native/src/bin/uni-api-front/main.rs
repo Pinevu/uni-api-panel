@@ -1,5 +1,13 @@
 mod antigravity_oauth;
 mod codex_oauth;
+
+// Compile-time assertions: axum requires the router state to be Clone + Send +
+// Sync, and any change that breaks this produces an opaque handler error.
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync + 'static>() {}
+    assert_send_sync::<proxy::AppState>();
+    assert_send_sync::<antigravity_oauth::AntigravityOAuth>();
+};
 mod config;
 mod generic_api;
 mod idempotency;
