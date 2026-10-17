@@ -14,6 +14,10 @@ services:
       # Idle timeout between request-body chunks from clients, in seconds.
       # Raise it when clients upload large bodies over slow or mobile networks.
       REQUEST_BODY_IDLE_TIMEOUT_SECONDS: ${REQUEST_BODY_IDLE_TIMEOUT_SECONDS:-120}
+      # Installed-app OAuth client used by the Antigravity (Google) channel type.
+      # Keep the values in the deployment .env, never in Git.
+      ANTIGRAVITY_CLIENT_ID: ${ANTIGRAVITY_CLIENT_ID:-}
+      ANTIGRAVITY_CLIENT_SECRET: ${ANTIGRAVITY_CLIENT_SECRET:-}
     volumes:
       - ./api.yaml:/home/api.yaml
       - ./data:/home/data
