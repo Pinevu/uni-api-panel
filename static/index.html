@@ -1924,6 +1924,60 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
 }
 
 
+
+/* ===== Compact channel editor rows ===== */
+.opt-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  cursor: pointer;
+}
+.opt-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); flex-shrink: 0; }
+.opt-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.opt-row-title { font-size: 12.5px; font-weight: 700; color: var(--text-primary); }
+.opt-row-sub { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
+.opt-mini-select {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+}
+.models-section { margin-top: 14px; border-top: 1px solid var(--border-light); padding-top: 12px; }
+.models-toolbar { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.models-toolbar-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.models-title { font-size: 12.5px; font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+.models-toolbar-actions { display: flex; gap: 4px; flex-wrap: nowrap; overflow-x: auto; }
+.mini-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  padding: 3px 7px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mini-btn:active { border-color: var(--primary); color: var(--primary); }
+.models-status { font-size: 10.5px; color: var(--text-muted); margin: 5px 0 7px; }
+.models-search {
+  width: 100%;
+  font-size: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
 /* ===== Antigravity quota card ===== */
 .quota-box { margin: 10px 0 4px; }
 .quota-card {
@@ -2293,13 +2347,7 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
       <input class="modal-input mono" id="chUrl" placeholder="https://api.example.com/v1">
     </div>
 
-    <div class="form-group" id="chAuthGroup">
-      <label class="form-label">认证方式</label>
-      <select class="filter-select" id="chAuthMode" onchange="syncAuthModeUI()" style="width:100%;padding:9px 12px">
-        <option value="apikey">API Key / Token</option>
-        <option value="antigravity_oauth">Google OAuth（Antigravity / Gemini）</option>
-      </select>
-    </div>
+    <input type="hidden" id="chAuthMode" value="apikey">
 
     <div class="form-group" id="chApiKeyGroup">
       <label class="form-label">API Key / Token</label>
@@ -2362,57 +2410,38 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
       <div style="font-size:11px;color:var(--text-muted);margin-top:5px">请求发送到此渠道时附加；同名内置请求头会以此处配置为准。</div>
     </div>
 
-    <div class="form-group" style="padding:10px 12px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--radius-md)">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-        <div>
-          <div style="font-size:13px;font-weight:650;color:var(--text-primary)">Prompt Cache 亲和</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">稳定缓存键与上游 Key 亲和；仅为确认兼容的渠道开启。</div>
-        </div>
-        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;white-space:nowrap;font-size:12px;font-weight:600;color:var(--text-secondary)">
-          <input id="chPromptCacheAffinity" type="checkbox" onchange="syncPromptCacheControls()" style="width:17px;height:17px;accent-color:var(--primary)">
-          启用
-        </label>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px">
-        <span style="font-size:11px;color:var(--text-muted)">缓存保留期（上游支持时才发送）</span>
-        <select class="filter-select" id="chPromptCacheRetention" style="padding:4px 26px 4px 8px;font-size:11.5px;min-width:100px">
-          <option value="">不指定</option>
-          <option value="24h">24 小时</option>
-        </select>
-      </div>
-    </div>
+    <label class="opt-row" for="chPromptCacheAffinity">
+      <input id="chPromptCacheAffinity" type="checkbox" onchange="syncPromptCacheControls()">
+      <span class="opt-row-text">
+        <span class="opt-row-title">Prompt Cache 亲和</span>
+        <span class="opt-row-sub">缓存键与上游 Key 亲和，仅确认兼容时开启</span>
+      </span>
+      <select class="opt-mini-select" id="chPromptCacheRetention" onclick="event.stopPropagation()">
+        <option value="">保留期</option>
+        <option value="24h">24 小时</option>
+      </select>
+    </label>
 
     <!-- Models Config Section -->
-    <div class="form-group" style="margin-top:20px;border-top:1px solid var(--border-light);padding-top:16px">
-      <div class="form-label">
-        <span>可用模型与别名配置</span>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
-          <button class="btn btn-outline btn-sm" id="chFetchBtn" onclick="fetchProviderModels()" style="padding:3.5px 8px;font-size:11.5px" title="从上游接口自动拉取模型列表">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-            一键拉取
-          </button>
-          <button class="btn btn-outline btn-sm" onclick="batchAddAliasPrefix()" style="padding:3.5px 8px;font-size:11.5px" title="为所有勾选的模型批量设置别名前缀(如 cpa-)">🏷️ 批量加前缀</button>
-          <button class="btn btn-outline btn-sm" onclick="clearAllAliases()" style="padding:3.5px 8px;font-size:11.5px" title="清空已设别名，还原为上游原名">清别名</button>
-          <button class="btn btn-outline btn-sm" onclick="toggleAllChModels()" style="padding:3.5px 8px;font-size:11.5px">全选/反选</button>
-          <button class="btn btn-outline btn-sm" onclick="clearAllChModels()" style="padding:3.5px 8px;font-size:11.5px">清空</button>
+    <div class="form-group models-section">
+      <div class="models-toolbar">
+        <div class="models-toolbar-left">
+          <span class="models-title">可用模型</span>
+          <span class="badge badge-purple" id="chSelectedCount">0</span>
+          <span class="badge" id="chAliasCount" style="display:none">0 别名</span>
+        </div>
+        <div class="models-toolbar-actions">
+          <button class="mini-btn" id="chFetchBtn" onclick="fetchProviderModels()" title="从上游拉取模型列表">拉取</button>
+          <button class="mini-btn" onclick="batchAddAliasPrefix()" title="为已选模型批量加别名前缀">前缀</button>
+          <button class="mini-btn" onclick="clearAllAliases()" title="清空别名">清别名</button>
+          <button class="mini-btn" onclick="toggleAllChModels()" title="全选 / 反选">全选</button>
+          <button class="mini-btn" onclick="clearAllChModels()" title="清空已选">清空</button>
         </div>
       </div>
-
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <span style="font-size:12px;color:var(--text-muted)" id="chFetchStatus">填写 Base URL 后可点击「一键拉取」</span>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span class="badge" id="chAliasCount" style="background:var(--primary-light);color:var(--primary);font-size:11px;padding:2px 7px;border-radius:var(--radius-full);display:none">0 别名</span>
-          <span class="badge badge-purple" id="chSelectedCount">已选 0 个</span>
-        </div>
-      </div>
-
-      <div class="search-input-wrap">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input class="search-input" id="chSearchModel" placeholder="搜索模型名称..." oninput="filterChModels()">
-      </div>
-
+      <div class="models-status" id="chFetchStatus">填入 Base URL 后点「拉取」</div>
+      <input class="models-search mono" id="chSearchModel" placeholder="搜索模型…" oninput="filterChModels()">
       <div class="chips-container" id="chChipsList">
-        <div style="text-align:center;width:100%;color:var(--text-muted);font-size:12px;padding:14px 0">暂无模型列表，请点击「一键拉取」或手动添加</div>
+        <div style="text-align:center;width:100%;color:var(--text-muted);font-size:12px;padding:12px 0">暂无模型，点「拉取」或手动添加</div>
       </div>
     </div>
 
@@ -3489,7 +3518,7 @@ function openChannelEditor(i, presetType) {
     chAllModels = [];
     chSelectedSet = new Set();
     chSelectionInitialized = false;
-    $('#chFetchStatus').textContent = '填写 Base URL 后可点击「一键拉取」';
+    $('#chFetchStatus').textContent = '填入 Base URL 后点「拉取」';
     if (preset === 'antigravity') {
       fillAntigravityModels(true);
     }
@@ -3734,7 +3763,7 @@ function renderChChips() {
   const box = $('#chChipsList');
   const filtered = chAllModels.filter(m => !query || m.toLowerCase().includes(query) || (chAliasMap[m] && chAliasMap[m].toLowerCase().includes(query)));
 
-  $('#chSelectedCount').textContent = `已选 ${chSelectedSet.size} / ${chAllModels.length} 个`;
+  $('#chSelectedCount').textContent = `${chSelectedSet.size}/${chAllModels.length}`;
 
   // 统计已设别名数量
   let aliasCount = 0;
