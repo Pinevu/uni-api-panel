@@ -376,6 +376,9 @@ pub struct QuotaGroup {
     pub label: &'static str,
     pub remaining: f64,
     pub reset_time: Option<String>,
+    /// Weekly window, when the upstream exposes one (currently rare).
+    pub weekly_remaining: Option<f64>,
+    pub weekly_reset: Option<String>,
     pub models: Vec<String>,
 }
 
@@ -397,6 +400,8 @@ impl AntigravityOAuth {
             label: "Gemini 模型",
             remaining: 1.0,
             reset_time: None,
+            weekly_remaining: None,
+            weekly_reset: None,
             models: Vec::new(),
         };
         let mut claude = QuotaGroup {
@@ -404,6 +409,8 @@ impl AntigravityOAuth {
             label: "Claude 和 GPT 模型",
             remaining: 1.0,
             reset_time: None,
+            weekly_remaining: None,
+            weekly_reset: None,
             models: Vec::new(),
         };
         let mut seen_gemini = false;
@@ -434,7 +441,19 @@ impl AntigravityOAuth {
             } else {
                 &mut seen_gemini
             };
-            if !*seen {
+            let token_type = bucket
+                .get("tokenType")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_ascii_uppercase();
+            let is_weekly = token_type.contains("WEEK") || token_type.contains("WTUW");
+            if is_weekly {
+                group.weekly_remaining = Some(match group.weekly_remaining {
+                    Some(current) => current.min(remaining),
+                    None => remaining,
+                });
+                group.weekly_reset = earliest_reset(group.weekly_reset.clone(), reset);
+            } else if !*seen {
                 group.remaining = remaining;
                 group.reset_time = reset;
                 *seen = true;

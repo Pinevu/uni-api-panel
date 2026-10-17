@@ -1957,7 +1957,12 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   cursor: pointer;
 }
 .quota-refresh:active { border-color: var(--primary); color: var(--primary); }
-.quota-window { margin-top: 9px; }
+.quota-group { margin-top: 10px; }
+.quota-group:first-of-type { margin-top: 0; }
+.quota-group-title { font-size: 11px; color: var(--text-muted); font-weight: 650; margin-bottom: 5px; }
+.quota-window-value.muted { color: var(--text-muted); font-weight: 550; }
+.quota-bar-fill.none { background: transparent; }
+.quota-window { margin-top: 7px; }
 .quota-window:first-of-type { margin-top: 0; }
 .quota-window-head {
   display: flex;
@@ -3252,31 +3257,14 @@ async function loadChannels() {
           </div>
 
           <div class="ch-body">
-          <div class="ch-meta-box">
-            <div class="ch-meta-row">
-              <span class="ch-meta-label">Base URL</span>
-              <span class="ch-meta-val">${esc(p.base_url || '')} <button class="key-copy" onclick="copyText('${esc(p.base_url || '')}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span>
-            </div>
-            <div class="ch-meta-row">
-              <span class="ch-meta-label">API Key</span>
-              <span class="ch-meta-val">${esc(maskedKey)} ${p.api ? `<button class="key-copy" onclick="copyText('${esc(p.api)}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ''}</span>
-            </div>
-            ${cacheEnabled ? `
-            <div class="ch-meta-row">
-              <span class="ch-meta-label">Prompt Cache</span>
-              <span class="ch-meta-val" style="color:var(--success);font-weight:600">已开启 (${esc(cacheRetention || '默认')})</span>
-            </div>` : ''}
-          </div>
-
           ${isAntigravity ? `<div class="quota-box" id="quota-${i}"></div>` : ''}
 
           <div class="ch-models-header">
             <span>支持模型 (${models.length})</span>
-            ${hasMore ? `<span class="ch-models-toggle" onclick="expandChTags(${i})">展开全部</span>` : ''}
+            <span class="ch-models-toggle" data-count="${models.length}" onclick="toggleChModels(${i}, this)">展开</span>
           </div>
-          <div class="tags" id="ch-tags-${i}">
-            ${initialList.map(renderModelTag).join('')}
-            ${hasMore ? `<span class="tag-more" onclick="expandChTags(${i})">+${models.length - showLimit} 更多...</span>` : ''}
+          <div class="tags" id="ch-tags-${i}" style="display:none">
+            ${models.map(renderModelTag).join('')}
           </div>
           </div>
         </div>`;
@@ -3343,21 +3331,34 @@ function renderQuota(idx) {
   const groups = data.groups || [];
   const planKey = (data.plan || '').toLowerCase();
   const planClass = planKey.includes('ultra') ? 'ultra' : planKey.includes('pro') ? 'pro' : 'free';
-  const rows = groups.map(group => {
-    const fraction = Math.max(0, Math.min(1, Number(group.remaining ?? 1)));
-    const percent = Math.round(fraction * 100);
-    const available = fraction >= 0.999;
+  const windowRow = (label, fraction, resetTime) => {
+    if (fraction === null || fraction === undefined || Number.isNaN(Number(fraction))) {
+      return `<div class="quota-window">
+        <div class="quota-window-head">
+          <span class="quota-window-label">${label}</span>
+          <span class="quota-window-value muted">上游未提供</span>
+        </div>
+        <div class="quota-bar"><span class="quota-bar-fill none" style="width:0%"></span></div>
+      </div>`;
+    }
+    const value = Math.max(0, Math.min(1, Number(fraction)));
+    const percent = Math.round(value * 100);
+    const available = value >= 0.999;
     const text = available ? '额度可用' : `剩余 ${percent}%`;
-    const reset = quotaCountdown(group.reset_time);
+    const reset = quotaCountdown(resetTime);
     return `<div class="quota-window">
       <div class="quota-window-head">
-        <span class="quota-window-label">5 小时限额</span>
-        <span class="quota-window-value ${quotaBarClass(fraction)}">${text}${reset ? ` · ${reset}` : ''}</span>
+        <span class="quota-window-label">${label}</span>
+        <span class="quota-window-value ${quotaBarClass(value)}">${text}${reset ? ` · ${reset}` : ''}</span>
       </div>
-      <div class="quota-bar"><span class="quota-bar-fill ${quotaBarClass(fraction)}" style="width:${Math.max(2, percent)}%"></span></div>
-      <div class="quota-window-models">${esc(group.label)} · ${group.model_count || 0} 个模型</div>
+      <div class="quota-bar"><span class="quota-bar-fill ${quotaBarClass(value)}" style="width:${Math.max(2, percent)}%"></span></div>
     </div>`;
-  }).join('');
+  };
+  const rows = groups.map(group => `<div class="quota-group">
+      <div class="quota-group-title">${esc(group.label)} · ${group.model_count || 0} 个模型</div>
+      ${windowRow('5 小时限额', group.remaining, group.reset_time)}
+      ${windowRow('周限额', group.weekly_remaining, group.weekly_reset)}
+    </div>`).join('');
   box.innerHTML = `
     <div class="quota-card">
       <div class="quota-head">
@@ -3412,11 +3413,12 @@ function toggleChBody(btn) {
   }
 }
 
-function expandChTags(idx) {
-  const p = configData.providers[idx];
-  if (!p) return;
+function toggleChModels(idx, el) {
   const box = $(`#ch-tags-${idx}`);
-  box.innerHTML = (p.models || p.model || []).map(renderModelTag).join('');
+  if (!box) return;
+  const open = box.style.display !== 'none';
+  box.style.display = open ? 'none' : 'flex';
+  if (el) el.textContent = open ? '展开' : '收起';
 }
 
 function updateManualTextarea() {

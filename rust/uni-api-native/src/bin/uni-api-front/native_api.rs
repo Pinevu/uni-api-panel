@@ -478,6 +478,8 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
                             "label": group.label,
                             "remaining": group.remaining,
                             "reset_time": group.reset_time,
+                            "weekly_remaining": group.weekly_remaining,
+                            "weekly_reset": group.weekly_reset,
                             "model_count": group.models.len(),
                         })).collect::<Vec<_>>(),
                     }),
