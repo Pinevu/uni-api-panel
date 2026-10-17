@@ -22,6 +22,9 @@ https://www.googleapis.com/auth/userinfo.profile \
 https://www.googleapis.com/auth/cclog \
 https://www.googleapis.com/auth/experimentsandconfigs";
 pub const USER_AGENT: &str = "antigravity/hub/2.13.0 darwin/arm64";
+/// Refresh this long before the upstream expiry so a request never starts
+/// with a token that is about to lapse.
+const TOKEN_SAFETY_WINDOW_SECS: u64 = 300;
 
 #[derive(Clone)]
 pub struct AntigravityOAuth {
@@ -95,10 +98,13 @@ impl AntigravityOAuth {
             proxy,
         )
         .await?;
+        // Keep the cached bearer usable for the whole request: treat the token
+        // as expired five minutes early, which is the same safety window the
+        // reference gateway uses before hitting Google.
         let ttl = bundle
             .expires_in
             .unwrap_or(3600)
-            .saturating_sub(60)
+            .saturating_sub(TOKEN_SAFETY_WINDOW_SECS)
             .max(30);
         self.store(token, bundle.access_token.clone(), ttl);
         Ok(bundle.access_token)
