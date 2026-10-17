@@ -133,15 +133,16 @@ impl AntigravityOAuth {
         if raw.is_empty() {
             return None;
         }
-        let query = match raw.find('?') {
-            Some(index) => &raw[index + 1..],
-            None => raw.strip_prefix("code=").unwrap_or_default(),
-        };
-        if !query.is_empty() {
-            for pair in query.split('&') {
+        // "code=..." pasted on its own.
+        if let Some(rest) = raw.strip_prefix("code=") {
+            let value = percent_decode(rest.split('&').next().unwrap_or_default());
+            let value = value.trim();
+            return (!value.is_empty()).then(|| value.to_owned());
+        }
+        if let Some(index) = raw.find('?') {
+            for pair in raw[index + 1..].split('&') {
                 let mut parts = pair.splitn(2, '=');
-                let key = parts.next().unwrap_or_default();
-                if key != "code" {
+                if parts.next().unwrap_or_default() != "code" {
                     continue;
                 }
                 let value = percent_decode(parts.next().unwrap_or_default());
@@ -153,7 +154,7 @@ impl AntigravityOAuth {
             return None;
         }
         // A bare code must not look like a URL or a leftover query string.
-        if raw.contains('?') || raw.contains('&') || raw.contains(' ') || raw.contains("://") {
+        if raw.contains('&') || raw.contains(' ') || raw.contains("://") {
             return None;
         }
         Some(raw.to_owned())
