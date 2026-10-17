@@ -66,6 +66,7 @@ pub struct AccountPool {
     inner: Arc<Mutex<Inner>>,
 }
 
+#[derive(Debug)]
 pub enum Pick {
     Selected(usize),
     /// Every account is parked in a cooldown.
@@ -424,5 +425,92 @@ mod tests {
         let accounts = accounts_from_preferences(&preferences);
         assert_eq!(accounts.len(), 1);
         assert_eq!(accounts[0].email, "a@x");
+    }
+
+    fn pooled(token: &str, email: &str) -> Account {
+        Account {
+            email: email.to_owned(),
+            refresh_token: token.to_owned(),
+            project_id: "proj".to_owned(),
+            proxy: None,
+        }
+    }
+
+    #[test]
+    fn picks_the_account_with_the_most_remaining_quota() {
+        let pool = AccountPool::new();
+        let accounts = vec![pooled("a", "a@x"), pooled("b", "b@x")];
+        pool.note_quota(
+            &accounts[0],
+            AccountQuota {
+                gemini: GroupQuota { five_hour: 1.0, weekly: 1.0 },
+                claude: GroupQuota { five_hour: 1.0, weekly: 1.0 },
+            },
+        );
+        pool.note_quota(
+            &accounts[1],
+            AccountQuota {
+                gemini: GroupQuota { five_hour: 0.1, weekly: 0.9 },
+                claude: GroupQuota { five_hour: 1.0, weekly: 1.0 },
+            },
+        );
+        match pool.pick(&accounts, "gemini-3.8-flash-high") {
+            Pick::Selected(index) => assert_eq!(index, 0),
+            other => panic!("unexpected pick: {other:?}"),
+        }
+        // Claude traffic is scored against the claude group instead.
+        match pool.pick(&accounts, "claude-sonnet-4-6") {
+            Pick::Selected(index) => assert!(index <= 1),
+            other => panic!("unexpected pick: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cooling_account_is_skipped_until_it_recovers() {
+        let pool = AccountPool::new();
+        let accounts = vec![pooled("a", "a@x"), pooled("b", "b@x")];
+        pool.mark_failure(&accounts[0], 429);
+        for _ in 0..4 {
+            match pool.pick(&accounts, "gemini-3.8-flash-high") {
+                Pick::Selected(index) => assert_eq!(index, 1),
+                other => panic!("unexpected pick: {other:?}"),
+            }
+        }
+        pool.mark_failure(&accounts[1], 429);
+        assert!(matches!(
+            pool.pick(&accounts, "gemini-3.8-flash-high"),
+            Pick::Cooling { .. }
+        ));
+        pool.mark_success(&accounts[1]);
+        assert!(matches!(
+            pool.pick(&accounts, "gemini-3.8-flash-high"),
+            Pick::Selected(1)
+        ));
+    }
+
+    #[test]
+    fn exhausted_quota_deprioritises_but_stays_usable() {
+        let pool = AccountPool::new();
+        let accounts = vec![pooled("a", "a@x"), pooled("b", "b@x")];
+        pool.note_quota(
+            &accounts[0],
+            AccountQuota {
+                gemini: GroupQuota { five_hour: 0.0, weekly: 0.0 },
+                claude: GroupQuota { five_hour: 0.0, weekly: 0.0 },
+            },
+        );
+        match pool.pick(&accounts, "gemini-3.8-flash-high") {
+            Pick::Selected(index) => assert_eq!(index, 1),
+            other => panic!("unexpected pick: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_account_list_is_reported() {
+        let pool = AccountPool::new();
+        assert!(matches!(
+            pool.pick(&[], "gemini-3.8-flash-high"),
+            Pick::Empty
+        ));
     }
 }
