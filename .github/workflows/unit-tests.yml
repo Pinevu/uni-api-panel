@@ -37,22 +37,10 @@ jobs:
         run: uv sync --frozen
 
       - name: Check native JSON guard
-        env:
-          RUSTC_BOOTSTRAP: "1"
-          RUSTFLAGS: "-Znext-solver=globally"
         run: |
           cargo fmt --check --manifest-path rust/uni-api-native/Cargo.toml || cargo fmt --manifest-path rust/uni-api-native/Cargo.toml
           cargo clippy --manifest-path rust/uni-api-native/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path rust/uni-api-native/Cargo.toml --locked
-
-      - name: Dump long handler types on failure
-        if: failure()
-        run: |
-          find rust/uni-api-native/target -name '*.long-type-*' 2>/dev/null | while read -r f; do
-            echo "=== $f"
-            head -c 4000 "$f"
-            echo
-          done
 
       - name: Build native JSON guard
         run: |
