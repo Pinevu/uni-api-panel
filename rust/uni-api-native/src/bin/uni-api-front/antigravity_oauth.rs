@@ -135,10 +135,7 @@ impl AntigravityOAuth {
         }
         let query = match raw.find('?') {
             Some(index) => &raw[index + 1..],
-            None => match raw.strip_prefix("code=") {
-                Some(rest) => rest,
-                None => "",
-            },
+            None => raw.strip_prefix("code=").unwrap_or_default(),
         };
         if !query.is_empty() {
             for pair in query.split('&') {
