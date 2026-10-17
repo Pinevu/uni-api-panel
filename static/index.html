@@ -2541,6 +2541,19 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
     </div>
 
     <div class="form-group">
+      <label class="form-label">渠道调度</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="filter-select" id="keySchedule" style="flex:1;padding:8px 11px">
+          <option value="fixed_priority">固定优先（总是用第一个可用渠道）</option>
+          <option value="round_robin">轮询（多账号均摊）</option>
+          <option value="weighted_round_robin">加权轮询</option>
+          <option value="random">随机</option>
+        </select>
+      </div>
+      <div class="order-hint" style="margin-top:6px">同一模型有多个渠道时如何挑选；多账号轮询建议选「轮询」。</div>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">有效期截止时间</label>
       <input class="modal-input" id="keyExpiry" type="datetime-local">
       <div class="expiry-presets">
@@ -4243,6 +4256,7 @@ function openKeyEditor(key) {
     // 默认全选所有可用模型
     keySelectedSet = new Set(keyAllModels);
     keyModelOrder = [...keyAllModels];
+    $('#keySchedule').value = 'fixed_priority';
     setKeyEnabledState(true);
   } else {
     // 编辑模式
@@ -4258,6 +4272,7 @@ function openKeyEditor(key) {
     $('#keyCopyBtn').style.display = 'inline-flex';
     $('#keyModal').dataset.fullkey = key;
 
+    $('#keySchedule').value = cfg?.preferences?.SCHEDULING_ALGORITHM || 'fixed_priority';
     keySelectedSet = new Set(models.length ? models : keyAllModels);
     const savedOrder = Array.isArray(cfg?.model_order) ? cfg.model_order : [];
     keyModelOrder = [
@@ -4486,6 +4501,10 @@ function saveKeyEdit() {
       model_order: modelOrder,
       enabled: keyIsEnabled
     };
+    const schedule = $('#keySchedule').value;
+    if (schedule && schedule !== 'fixed_priority') {
+      newEntry.preferences = { SCHEDULING_ALGORITHM: schedule };
+    }
     if (expiryStr) {
       newEntry.expires_at = Math.floor(new Date(expiryStr).getTime() / 1000);
     }
@@ -4501,6 +4520,13 @@ function saveKeyEdit() {
     cfg.model = models;
     cfg.model_order = modelOrder;
     cfg.enabled = keyIsEnabled;
+    const schedule = $('#keySchedule').value;
+    if (schedule && schedule !== 'fixed_priority') {
+      cfg.preferences = { ...(cfg.preferences || {}), SCHEDULING_ALGORITHM: schedule };
+    } else if (cfg.preferences) {
+      delete cfg.preferences.SCHEDULING_ALGORITHM;
+      if (!Object.keys(cfg.preferences).length) delete cfg.preferences;
+    }
     if (expiryStr) {
       cfg.expires_at = Math.floor(new Date(expiryStr).getTime() / 1000);
     } else {
