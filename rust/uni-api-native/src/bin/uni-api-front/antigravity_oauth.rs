@@ -106,18 +106,19 @@ impl AntigravityOAuth {
 
     pub fn build_auth_url(state: &str, redirect_uri: &str) -> Result<String, String> {
         let (client_id, _) = oauth_client()?;
-        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
-        serializer.append_pair("client_id", &client_id);
-        serializer.append_pair("redirect_uri", redirect_uri);
-        serializer.append_pair("response_type", "code");
-        serializer.append_pair("scope", SCOPES);
-        serializer.append_pair("access_type", "offline");
-        serializer.append_pair("prompt", "consent");
-        serializer.append_pair("include_granted_scopes", "true");
+        let mut pairs = vec![
+            ("client_id", client_id.as_str()),
+            ("redirect_uri", redirect_uri),
+            ("response_type", "code"),
+            ("scope", SCOPES),
+            ("access_type", "offline"),
+            ("prompt", "consent"),
+            ("include_granted_scopes", "true"),
+        ];
         if !state.is_empty() {
-            serializer.append_pair("state", state);
+            pairs.push(("state", state));
         }
-        Ok(format!("{AUTH_ENDPOINT}?{}", serializer.finish()))
+        Ok(format!("{AUTH_ENDPOINT}?{}", encode_pairs(&pairs)))
     }
 
     /// Accept either a bare authorization code or the full callback URL the
@@ -221,6 +222,20 @@ impl AntigravityOAuth {
     }
 }
 
+/// Percent-encode a form body.  Written by hand because
+/// `url::form_urlencoded::Serializer` is not `Send`, and holding one across an
+/// await would make the whole request future non-Send.
+fn encode_pairs(pairs: &[(&str, &str)]) -> String {
+    let encode = |value: &str| -> String {
+        url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+    };
+    pairs
+        .iter()
+        .map(|(key, value)| format!("{}={}", encode(key), encode(value)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
 /// Read the installed-app OAuth client from the environment.
 fn oauth_client() -> Result<(String, String), String> {
     let read = |name: &str| {
@@ -261,11 +276,7 @@ async fn request_token(
     proxy: Option<&str>,
 ) -> Result<TokenBundle, String> {
     let client = build_client(proxy)?;
-    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
-    for (key, value) in params {
-        serializer.append_pair(key, value);
-    }
-    let body = serializer.finish();
+    let body = encode_pairs(params);
     let response = client
         .post(TOKEN_ENDPOINT)
         .header("content-type", "application/x-www-form-urlencoded")
