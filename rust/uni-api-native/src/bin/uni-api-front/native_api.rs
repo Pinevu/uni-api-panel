@@ -336,7 +336,10 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
                 .unwrap_or_default();
             let Some(code) = crate::antigravity_oauth::AntigravityOAuth::parse_auth_code(raw_code)
             else {
-                return json_error(StatusCode::BAD_REQUEST, "Authorization code is required");
+                return json_error(
+                    StatusCode::BAD_REQUEST,
+                    "No authorization code found. Paste the full callback URL, e.g. http://localhost:51121/oauth-callback?code=...",
+                );
             };
             let proxy = params
                 .get("proxy")

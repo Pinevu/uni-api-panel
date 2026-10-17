@@ -123,24 +123,41 @@ impl AntigravityOAuth {
 
     /// Accept either a bare authorization code or the full callback URL the
     /// browser failed to open (http://localhost:51121/oauth-callback?code=...).
+    /// Accept a bare authorization code, `code=...`, or any callback URL.
+    ///
+    /// Safari hides the scheme in its address bar, so the common paste is
+    /// `localhost:51121/oauth-callback?state=...&code=...` with no `http://`
+    /// prefix; that must still be treated as a URL, not as a raw code.
     pub fn parse_auth_code(input: &str) -> Option<String> {
         let raw = input.trim();
         if raw.is_empty() {
             return None;
         }
-        if raw.starts_with("http://") || raw.starts_with("https://") {
-            let parsed = url::Url::parse(raw).ok()?;
-            for (key, value) in parsed.query_pairs() {
-                if key == "code" && !value.trim().is_empty() {
-                    return Some(value.trim().to_owned());
+        let query = match raw.find('?') {
+            Some(index) => &raw[index + 1..],
+            None => match raw.strip_prefix("code=") {
+                Some(rest) => rest,
+                None => "",
+            },
+        };
+        if !query.is_empty() {
+            for pair in query.split('&') {
+                let mut parts = pair.splitn(2, '=');
+                let key = parts.next().unwrap_or_default();
+                if key != "code" {
+                    continue;
+                }
+                let value = percent_decode(parts.next().unwrap_or_default());
+                let value = value.trim();
+                if !value.is_empty() {
+                    return Some(value.to_owned());
                 }
             }
             return None;
         }
-        // Tolerate "code=xxx" pastes as well.
-        if let Some(rest) = raw.strip_prefix("code=") {
-            let value = rest.split('&').next().unwrap_or("").trim();
-            return (!value.is_empty()).then(|| value.to_owned());
+        // A bare code must not look like a URL or a leftover query string.
+        if raw.contains('?') || raw.contains('&') || raw.contains(' ') || raw.contains("://") {
+            return None;
         }
         Some(raw.to_owned())
     }
@@ -220,6 +237,26 @@ impl AntigravityOAuth {
         }
         None
     }
+}
+
+/// Minimal percent-decoding for the authorization code query parameter.
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = &value[index + 1..index + 3];
+            if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                out.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Percent-encode a form body.  Written by hand because
@@ -325,4 +362,47 @@ async fn request_token(
 /// user pastes it) so only uniqueness matters here.
 pub fn random_state() -> String {
     format!("ag{:x}{:x}", unix_millis(), std::process::id())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_full_callback_urls() {
+        let code = AntigravityOAuth::parse_auth_code(
+            "http://localhost:51121/oauth-callback?state=abc&code=4%2F0AXYz",
+        );
+        assert_eq!(code.as_deref(), Some("4/0AXYz"));
+    }
+
+    #[test]
+    fn parses_callback_urls_without_a_scheme() {
+        // Safari hides the scheme in its address bar.
+        let code = AntigravityOAuth::parse_auth_code(
+            "localhost:51121/oauth-callback?state=abc&code=4%2F0AXYz",
+        );
+        assert_eq!(code.as_deref(), Some("4/0AXYz"));
+    }
+
+    #[test]
+    fn parses_bare_codes_and_code_prefixes() {
+        assert_eq!(
+            AntigravityOAuth::parse_auth_code("4/0AXYz").as_deref(),
+            Some("4/0AXYz")
+        );
+        assert_eq!(
+            AntigravityOAuth::parse_auth_code("code=4%2F0AXYz").as_deref(),
+            Some("4/0AXYz")
+        );
+    }
+
+    #[test]
+    fn rejects_callbacks_without_a_code() {
+        assert!(AntigravityOAuth::parse_auth_code(
+            "localhost:51121/oauth-callback?state=abc"
+        )
+        .is_none());
+        assert!(AntigravityOAuth::parse_auth_code("   ").is_none());
+    }
 }

@@ -2168,12 +2168,12 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
       <input class="modal-input" id="chName" placeholder="例: cpa-pool 或 grok2api">
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="chUrlGroup">
       <label class="form-label">API Base URL</label>
       <input class="modal-input mono" id="chUrl" placeholder="https://api.example.com/v1">
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="chAuthGroup">
       <label class="form-label">认证方式</label>
       <select class="filter-select" id="chAuthMode" onchange="syncAuthModeUI()" style="width:100%;padding:9px 12px">
         <option value="apikey">API Key / Token</option>
@@ -2233,7 +2233,7 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
       </div>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="chHeadersGroup">
       <label class="form-label">
         <span>自定义请求头</span>
         <span style="font-size:11px;color:var(--text-muted);font-weight:500">每行一个：Header-Name: value</span>
@@ -3303,6 +3303,12 @@ function syncAuthModeUI() {
   const isOauth = $('#chAuthMode').value === 'antigravity_oauth';
   $('#chApiKeyGroup').style.display = isOauth ? 'none' : '';
   $('#chOauthPanel').style.display = isOauth ? '' : 'none';
+  // Antigravity channels derive these from the OAuth profile, so hide the
+  // fields that would only add noise.
+  ['chUrlGroup', 'chAuthGroup', 'chHeadersGroup'].forEach(id => {
+    const el = $('#' + id);
+    if (el) el.style.display = isOauth ? 'none' : '';
+  });
   if (isOauth && !$('#chUrl').value.trim()) {
     $('#chUrl').value = 'https://daily-cloudcode-pa.googleapis.com';
   }
