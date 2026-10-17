@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
-use tokio::sync::Mutex;
 
 /// OAuth client used by the Antigravity IDE.  Both values are supplied through
 /// the environment so this repository never carries the installed-app
@@ -27,7 +26,6 @@ pub const USER_AGENT: &str = "antigravity/hub/2.13.0 darwin/arm64";
 #[derive(Clone)]
 pub struct AntigravityOAuth {
     cache: Arc<Mutex<HashMap<String, CachedToken>>>,
-    locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 #[derive(Clone)]
@@ -52,8 +50,27 @@ impl AntigravityOAuth {
     pub fn new() -> Self {
         Self {
             cache: Arc::new(Mutex::new(HashMap::new())),
-            locks: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Cached bearer for a refresh token, if it is still valid.
+    fn cached(&self, refresh_token: &str) -> Option<String> {
+        let cache = self.cache.lock().unwrap_or_else(|error| error.into_inner());
+        cache
+            .get(refresh_token)
+            .filter(|entry| entry.expires_at > Instant::now())
+            .map(|entry| entry.access_token.clone())
+    }
+
+    fn store(&self, refresh_token: &str, access_token: String, ttl: u64) {
+        let mut cache = self.cache.lock().unwrap_or_else(|error| error.into_inner());
+        cache.insert(
+            refresh_token.to_owned(),
+            CachedToken {
+                access_token,
+                expires_at: Instant::now() + Duration::from_secs(ttl),
+            },
+        );
     }
 
     /// Exchange a stored refresh token for a live access token, reusing the
@@ -63,25 +80,8 @@ impl AntigravityOAuth {
         if token.is_empty() {
             return Err("Antigravity refresh token is empty".into());
         }
-        if let Some(cached) = self.cache.lock().await.get(token).cloned() {
-            if cached.expires_at > Instant::now() {
-                return Ok(cached.access_token);
-            }
-        }
-
-        let lock = {
-            let mut locks = self.locks.lock().await;
-            locks
-                .entry(token.to_owned())
-                .or_insert_with(|| Arc::new(Mutex::new(())))
-                .clone()
-        };
-        let _guard = lock.lock().await;
-
-        if let Some(cached) = self.cache.lock().await.get(token).cloned() {
-            if cached.expires_at > Instant::now() {
-                return Ok(cached.access_token);
-            }
+        if let Some(access_token) = self.cached(token) {
+            return Ok(access_token);
         }
 
         let (client_id, client_secret) = oauth_client()?;
@@ -100,13 +100,7 @@ impl AntigravityOAuth {
             .unwrap_or(3600)
             .saturating_sub(60)
             .max(30);
-        self.cache.lock().await.insert(
-            token.to_owned(),
-            CachedToken {
-                access_token: bundle.access_token.clone(),
-                expires_at: Instant::now() + Duration::from_secs(ttl),
-            },
-        );
+        self.store(token, bundle.access_token.clone(), ttl);
         Ok(bundle.access_token)
     }
 
