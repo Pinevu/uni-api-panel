@@ -362,6 +362,199 @@ pub fn random_state() -> String {
     format!("ag{:x}{:x}", unix_millis(), std::process::id())
 }
 
+
+
+/// Antigravity quota windows exposed by the Code Assist backend.
+pub struct QuotaReport {
+    pub plan: String,
+    pub tier_id: String,
+    pub groups: Vec<QuotaGroup>,
+}
+
+pub struct QuotaGroup {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub remaining: f64,
+    pub reset_time: Option<String>,
+    pub models: Vec<String>,
+}
+
+impl AntigravityOAuth {
+    pub async fn fetch_quota(
+        refresh_token: &str,
+        project: &str,
+        proxy: Option<&str>,
+    ) -> Result<QuotaReport, String> {
+        let oauth = AntigravityOAuth::new();
+        let access = oauth.resolve(refresh_token, proxy).await?;
+        let client = build_client(proxy)?;
+
+        let (plan, tier_id) = fetch_plan(&client, &access).await;
+        let buckets = fetch_quota_buckets(&client, &access, project).await?;
+
+        let mut gemini = QuotaGroup {
+            key: "gemini",
+            label: "Gemini 模型",
+            remaining: 1.0,
+            reset_time: None,
+            models: Vec::new(),
+        };
+        let mut claude = QuotaGroup {
+            key: "claude",
+            label: "Claude 和 GPT 模型",
+            remaining: 1.0,
+            reset_time: None,
+            models: Vec::new(),
+        };
+        let mut seen_gemini = false;
+        let mut seen_claude = false;
+
+        for bucket in buckets {
+            let model = bucket
+                .get("modelId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if model.is_empty() {
+                continue;
+            }
+            let remaining = bucket
+                .get("remainingFraction")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            let reset = bucket
+                .get("resetTime")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let lower = model.to_ascii_lowercase();
+            let is_claude = lower.starts_with("claude") || lower.contains("gpt");
+            let group = if is_claude { &mut claude } else { &mut gemini };
+            let seen = if is_claude {
+                &mut seen_claude
+            } else {
+                &mut seen_gemini
+            };
+            if !*seen {
+                group.remaining = remaining;
+                group.reset_time = reset;
+                *seen = true;
+            } else {
+                group.remaining = group.remaining.min(remaining);
+                group.reset_time = earliest_reset(group.reset_time.clone(), reset);
+            }
+            group.models.push(model.to_owned());
+        }
+
+        let mut groups = Vec::new();
+        if seen_gemini {
+            groups.push(gemini);
+        }
+        if seen_claude {
+            groups.push(claude);
+        }
+        Ok(QuotaReport {
+            plan,
+            tier_id,
+            groups,
+        })
+    }
+}
+
+async fn fetch_plan(client: &reqwest::Client, access: &str) -> (String, String) {
+    let response = client
+        .post(LOAD_CODE_ASSIST_URL)
+        .header("authorization", format!("Bearer {access}"))
+        .header("content-type", "application/json")
+        .header("user-agent", USER_AGENT)
+        .timeout(Duration::from_secs(20))
+        .body(r#"{"metadata":{"ideType":"ANTIGRAVITY"}}"#)
+        .send()
+        .await;
+    let Ok(response) = response else {
+        return ("Free".into(), "free-tier".into());
+    };
+    if !response.status().is_success() {
+        return ("Free".into(), "free-tier".into());
+    }
+    let Ok(payload) = response.json::<Value>().await else {
+        return ("Free".into(), "free-tier".into());
+    };
+    let tier = payload.get("paidTier").filter(|value| value.is_object());
+    let Some(tier) = tier else {
+        return ("Free".into(), "free-tier".into());
+    };
+    let name = tier
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("Free")
+        .to_owned();
+    let id = tier
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("free-tier")
+        .to_owned();
+    (short_plan_name(&name), id)
+}
+
+/// Map Google's verbose tier names onto the short labels used in the panel.
+fn short_plan_name(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("ultra") {
+        "Ultra".into()
+    } else if lower.contains("pro") {
+        "Pro".into()
+    } else if lower.contains("free") || lower.is_empty() {
+        "Free".into()
+    } else {
+        name.to_owned()
+    }
+}
+
+async fn fetch_quota_buckets(
+    client: &reqwest::Client,
+    access: &str,
+    project: &str,
+) -> Result<Vec<Value>, String> {
+    let body = if project.trim().is_empty() {
+        "{}".to_owned()
+    } else {
+        serde_json::json!({ "project": project.trim() }).to_string()
+    };
+    let response = client
+        .post("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")
+        .header("authorization", format!("Bearer {access}"))
+        .header("content-type", "application/json")
+        .header("user-agent", USER_AGENT)
+        .timeout(Duration::from_secs(25))
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| format!("Antigravity quota request failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Antigravity quota endpoint returned HTTP {}",
+            response.status()
+        ));
+    }
+    let payload: Value = response
+        .json()
+        .await
+        .map_err(|error| format!("Antigravity quota response is not JSON: {error}"))?;
+    Ok(payload
+        .get("buckets")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn earliest_reset(current: Option<String>, candidate: Option<String>) -> Option<String> {
+    match (current, candidate) {
+        (Some(a), Some(b)) => Some(if a <= b { a } else { b }),
+        (Some(a), None) => Some(a),
+        (None, value) => value,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

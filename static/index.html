@@ -1918,6 +1918,107 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   cursor: pointer;
 }
 
+
+/* ===== Antigravity quota card ===== */
+.quota-box { margin: 10px 0 4px; }
+.quota-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  padding: 11px 12px;
+}
+.quota-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.quota-title { font-size: 12.5px; font-weight: 750; color: var(--text-primary); }
+.quota-plan {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  background: var(--bg-card);
+}
+.quota-plan.pro { color: #7c3aed; border-color: rgba(124, 58, 237, .28); background: rgba(124, 58, 237, .1); }
+.quota-plan.ultra { color: #b45309; border-color: rgba(180, 83, 9, .28); background: rgba(180, 83, 9, .1); }
+.quota-refresh {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+.quota-refresh:active { border-color: var(--primary); color: var(--primary); }
+.quota-window { margin-top: 9px; }
+.quota-window:first-of-type { margin-top: 0; }
+.quota-window-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  margin-bottom: 4px;
+}
+.quota-window-label { color: var(--text-secondary); font-weight: 650; }
+.quota-window-value { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--text-muted); }
+.quota-window-value.high { color: #15803d; }
+.quota-window-value.medium { color: #b45309; }
+.quota-window-value.low { color: #b91c1c; }
+.quota-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border-light);
+  overflow: hidden;
+}
+.quota-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #22c55e;
+  transition: width .3s ease;
+}
+.quota-bar-fill.medium { background: #f59e0b; }
+.quota-bar-fill.low { background: #ef4444; }
+.quota-window-models { margin-top: 4px; font-size: 10.5px; color: var(--text-muted); }
+.quota-idle {
+  width: 100%;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 9px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.quota-idle.loading { cursor: default; }
+.quota-error {
+  font-size: 11.5px;
+  color: var(--danger, #b91c1c);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ch-models-toggle {
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 650;
+  cursor: pointer;
+}
+
 /* ===== Channel type picker ===== */
 .ch-type-list { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
 .ch-type-item {
@@ -3122,9 +3223,11 @@ async function loadChannels() {
     providers.forEach((p, i) => {
       const models = p.models || p.model || [];
       const cacheEnabled = p.preferences?.prompt_cache_affinity === true;
+      const isAntigravity = (p.engine || '').toLowerCase() === 'antigravity'
+        || Boolean(p.preferences?.oauth?.refresh_token);
       const cacheRetention = p.preferences?.prompt_cache_retention || '';
       const maskedKey = p.api ? p.api.slice(0, 8) + '...' + p.api.slice(-4) : '(无密钥/留空)';
-      const showLimit = 12;
+      const showLimit = 6;
       const hasMore = models.length > showLimit;
       const initialList = models.slice(0, showLimit);
 
@@ -3165,8 +3268,11 @@ async function loadChannels() {
             </div>` : ''}
           </div>
 
+          ${isAntigravity ? `<div class="quota-box" id="quota-${i}"></div>` : ''}
+
           <div class="ch-models-header">
             <span>支持模型 (${models.length})</span>
+            ${hasMore ? `<span class="ch-models-toggle" onclick="expandChTags(${i})">展开全部</span>` : ''}
           </div>
           <div class="tags" id="ch-tags-${i}">
             ${initialList.map(renderModelTag).join('')}
@@ -3176,9 +3282,118 @@ async function loadChannels() {
         </div>`;
     });
     $('#channelsContent').innerHTML = html || '<div style="text-align:center;padding:40px;color:var(--text-muted)">暂无渠道配置，请点击上方「添加渠道」</div>';
+    Object.keys(QUOTA_CACHE).forEach(key => renderQuota(Number(key)));
+    providers.forEach((p, i) => {
+      const hasQuota = document.getElementById('quota-' + i);
+      if (hasQuota && !QUOTA_CACHE[i]) {
+        QUOTA_CACHE[i] = { status: 'idle' };
+        renderQuota(i);
+      }
+    });
   } catch (e) {
     showToast('渠道加载失败');
   }
+}
+
+/* ===== Antigravity quota card ===== */
+const QUOTA_CACHE = {};
+
+function quotaBarClass(fraction) {
+  if (fraction >= 0.5) return 'high';
+  if (fraction >= 0.2) return 'medium';
+  return 'low';
+}
+
+function quotaCountdown(resetTime) {
+  if (!resetTime) return '';
+  const target = new Date(resetTime).getTime();
+  if (Number.isNaN(target)) return '';
+  let diff = Math.max(0, target - Date.now());
+  if (diff <= 0) return '可立即刷新';
+  const minutes = Math.floor(diff / 60000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return `${days} 天 ${hours} 小时 后刷新`;
+  if (hours > 0) return `${hours} 小时 ${mins} 分 后刷新`;
+  return `${Math.max(1, mins)} 分钟后刷新`;
+}
+
+function renderQuota(idx) {
+  const box = document.getElementById('quota-' + idx);
+  if (!box) return;
+  const state = QUOTA_CACHE[idx];
+  if (!state || state.status === 'idle') {
+    box.innerHTML = `<button class="quota-idle" onclick="loadQuota(${idx}, true)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+      点击查看额度
+    </button>`;
+    return;
+  }
+  if (state.status === 'loading') {
+    box.innerHTML = '<div class="quota-idle loading">正在加载额度…</div>';
+    return;
+  }
+  if (state.status === 'error') {
+    box.innerHTML = `<div class="quota-error">额度获取失败：${esc(state.message || '未知错误')}
+      <button class="quota-refresh" onclick="loadQuota(${idx}, true)">重试</button></div>`;
+    return;
+  }
+  const data = state.data || {};
+  const groups = data.groups || [];
+  const planKey = (data.plan || '').toLowerCase();
+  const planClass = planKey.includes('ultra') ? 'ultra' : planKey.includes('pro') ? 'pro' : 'free';
+  const rows = groups.map(group => {
+    const fraction = Math.max(0, Math.min(1, Number(group.remaining ?? 1)));
+    const percent = Math.round(fraction * 100);
+    const available = fraction >= 0.999;
+    const text = available ? '额度可用' : `剩余 ${percent}%`;
+    const reset = quotaCountdown(group.reset_time);
+    return `<div class="quota-window">
+      <div class="quota-window-head">
+        <span class="quota-window-label">5 小时限额</span>
+        <span class="quota-window-value ${quotaBarClass(fraction)}">${text}${reset ? ` · ${reset}` : ''}</span>
+      </div>
+      <div class="quota-bar"><span class="quota-bar-fill ${quotaBarClass(fraction)}" style="width:${Math.max(2, percent)}%"></span></div>
+      <div class="quota-window-models">${esc(group.label)} · ${group.model_count || 0} 个模型</div>
+    </div>`;
+  }).join('');
+  box.innerHTML = `
+    <div class="quota-card">
+      <div class="quota-head">
+        <span class="quota-title">Antigravity 额度</span>
+        <span class="quota-plan ${planClass}">套餐 ${esc(data.plan || 'Free')}</span>
+        <button class="quota-refresh" onclick="loadQuota(${idx}, true)">刷新额度</button>
+      </div>
+      ${rows || '<div class="quota-error">上游未返回额度数据</div>'}
+    </div>`;
+}
+
+async function loadQuota(idx, force) {
+  const p = configData?.providers?.[idx];
+  const oauth = p?.preferences?.oauth;
+  if (!oauth?.refresh_token) {
+    QUOTA_CACHE[idx] = { status: 'error', message: '该渠道缺少 OAuth 凭据' };
+    renderQuota(idx);
+    return;
+  }
+  const cached = QUOTA_CACHE[idx];
+  if (!force && cached && cached.status === 'ready') {
+    renderQuota(idx);
+    return;
+  }
+  QUOTA_CACHE[idx] = { status: 'loading' };
+  renderQuota(idx);
+  try {
+    const data = await oauthAdminPost('/v1/oauth/antigravity/quota', {
+      refresh_token: oauth.refresh_token,
+      project_id: oauth.project_id || ''
+    });
+    QUOTA_CACHE[idx] = { status: 'ready', data };
+  } catch (e) {
+    QUOTA_CACHE[idx] = { status: 'error', message: e.message };
+  }
+  renderQuota(idx);
 }
 
 function toggleChBody(btn) {
@@ -3186,6 +3401,15 @@ function toggleChBody(btn) {
   const isOpen = body.classList.toggle('open');
   btn.classList.toggle('open', isOpen);
   btn.querySelector('span').textContent = isOpen ? '折叠' : '展开';
+  if (isOpen) {
+    const card = btn.closest('.ch-card');
+    const box = card.querySelector('.quota-box');
+    if (box) {
+      const idx = Number(box.id.replace('quota-', ''));
+      const cached = QUOTA_CACHE[idx];
+      if (!cached || cached.status === 'idle') loadQuota(idx, false);
+    }
+  }
 }
 
 function expandChTags(idx) {

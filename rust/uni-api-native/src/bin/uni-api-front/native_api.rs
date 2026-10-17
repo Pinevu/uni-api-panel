@@ -116,6 +116,7 @@ pub fn supports_mutation(method: &Method, path: &str) -> bool {
                 | "/v1/oauth/antigravity/start"
                 | "/v1/oauth/antigravity/exchange"
                 | "/v1/oauth/antigravity/import"
+                | "/v1/oauth/antigravity/quota"
         )
 }
 
@@ -434,6 +435,54 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
                     )
                 }
                 Err(error) => json_error(StatusCode::UNAUTHORIZED, &error),
+            }
+        }
+        "/v1/oauth/antigravity/quota" => {
+            let params = match read_json_object(request, 1024 * 1024).await {
+                Ok(params) => params,
+                Err(response) => return response,
+            };
+            let refresh_token = params
+                .get("refresh_token")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            if refresh_token.is_empty() {
+                return json_error(StatusCode::BAD_REQUEST, "refresh_token is required");
+            }
+            let project = params
+                .get("project_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            let proxy = params
+                .get("proxy")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            match crate::antigravity_oauth::AntigravityOAuth::fetch_quota(
+                &refresh_token,
+                &project,
+                proxy,
+            )
+            .await
+            {
+                Ok(report) => json_response(
+                    StatusCode::OK,
+                    json!({
+                        "plan": report.plan,
+                        "tier_id": report.tier_id,
+                        "groups": report.groups.iter().map(|group| json!({
+                            "key": group.key,
+                            "label": group.label,
+                            "remaining": group.remaining,
+                            "reset_time": group.reset_time,
+                            "model_count": group.models.len(),
+                        })).collect::<Vec<_>>(),
+                    }),
+                ),
+                Err(error) => json_error(StatusCode::BAD_GATEWAY, &error),
             }
         }
         _ => json_error(StatusCode::NOT_FOUND, "Not found"),
