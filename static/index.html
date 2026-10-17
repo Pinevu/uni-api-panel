@@ -1895,13 +1895,15 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   flex-wrap: wrap;
 }
 .oauth-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 600;
 }
+.oauth-status .oauth-dot { flex: none; }
 .oauth-status.ok { color: var(--success); }
 .oauth-dot {
   width: 7px;
@@ -1913,6 +1915,17 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
 .oauth-status.ok .oauth-dot { background: var(--success); }
 .oauth-status.waiting .oauth-dot { background: var(--primary); animation: oauthPulse 1.4s ease-in-out infinite; }
 @keyframes oauthPulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+.oauth-accounts { display: flex; flex-direction: column; gap: 6px; }
+.oauth-account { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 9px; background: var(--bg-subtle, rgba(148,163,184,.08)); }
+.oauth-account-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.oauth-account-mail { font-size: 12px; font-weight: 650; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oauth-account-project { font-size: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oauth-account-del { flex: none; border: none; background: transparent; color: var(--danger, #ef4444); font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 6px; }
+.oauth-account-del:active { background: rgba(239,68,68,.12); }
+.oauth-pending { margin-top: 6px; font-size: 11px; color: var(--primary); display: flex; align-items: center; gap: 6px; }
+.oauth-empty { font-size: 11px; color: var(--text-muted); }
+.oauth-add-btn { margin-top: 7px; }
+
 .oauth-link-btn {
   border: none;
   background: transparent;
@@ -2036,6 +2049,10 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   cursor: pointer;
 }
 .quota-refresh:active { border-color: var(--primary); color: var(--primary); }
+.quota-account { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.quota-account:first-of-type { margin-top: 4px; padding-top: 0; border-top: none; }
+.quota-account-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.quota-account-mail { font-size: 12px; font-weight: 650; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quota-group { margin-top: 10px; }
 .quota-group:first-of-type { margin-top: 0; }
 .quota-group-title { font-size: 11px; color: var(--text-muted); font-weight: 650; margin-bottom: 5px; }
@@ -2597,6 +2614,8 @@ let chAliasMap = {}; // { [upstream_model]: custom_alias }
 let chSelectionInitialized = false; // 是否已有明确的模型选择意图
 let chCustomHeaders = {}; // 当前渠道的固定上游请求头
 let chOauthState = { refresh_token: '', project_id: '', email: '' }; // Antigravity OAuth 凭据
+let chOauthAccounts = []; // 渠道内的全部 Antigravity 账号
+let chOauthAwaiting = false; // 是否正在等待一次新的授权回调
 
 function parseCustomHeaders(text) {
   const headers = {};
@@ -3369,6 +3388,64 @@ async function loadChannels() {
 /* ===== Antigravity quota card ===== */
 const QUOTA_CACHE = {};
 
+function renderQuotaAccounts(idx, box, accounts) {
+  const windowRow = (label, window) => {
+    if (!window || window.remaining === null || window.remaining === undefined) {
+      return `<div class="quota-window">
+        <div class="quota-window-head">
+          <span class="quota-window-label">${label}</span>
+          <span class="quota-window-value muted">上游未提供</span>
+        </div>
+        <div class="quota-bar"><span class="quota-bar-fill none" style="width:0%"></span></div>
+      </div>`;
+    }
+    const value = Math.max(0, Math.min(1, Number(window.remaining)));
+    const percent = Math.round(value * 100);
+    const text = value >= 0.999 ? '额度可用' : `剩余 ${percent}%`;
+    const reset = quotaCountdown(window.reset_time);
+    return `<div class="quota-window">
+      <div class="quota-window-head">
+        <span class="quota-window-label">${label}</span>
+        <span class="quota-window-value ${quotaBarClass(value)}">${text}${reset ? ` · ${reset}` : ''}</span>
+      </div>
+      <div class="quota-bar"><span class="quota-bar-fill ${quotaBarClass(value)}" style="width:${Math.max(2, percent)}%"></span></div>
+    </div>`;
+  };
+  const blocks = (accounts || []).map(account => {
+    if (!account.ok) {
+      return `<div class="quota-account">
+        <div class="quota-account-head">
+          <span class="quota-account-mail">${esc(account.email || '未知账号')}</span>
+          <span class="quota-window-value red">读取失败</span>
+        </div>
+        <div class="quota-error" style="margin-top:6px">${esc(account.error || '未知错误')}</div>
+      </div>`;
+    }
+    const planKey = (account.plan || '').toLowerCase();
+    const planClass = planKey.includes('ultra') ? 'ultra' : planKey.includes('pro') ? 'pro' : 'free';
+    const rows = (account.groups || []).map(group => `<div class="quota-group">
+        <div class="quota-group-title">${esc(group.label)}${group.model_count ? ` · ${group.model_count} 个模型` : ''}</div>
+        ${windowRow('5 小时限额', group.five_hour)}
+        ${windowRow('周限额', group.weekly)}
+      </div>`).join('');
+    return `<div class="quota-account">
+      <div class="quota-account-head">
+        <span class="quota-account-mail">${esc(account.email || '未知账号')}</span>
+        <span class="quota-plan ${planClass}">${esc(account.plan || 'Free')}</span>
+      </div>
+      ${rows || '<div class="quota-error">上游未返回额度数据</div>'}
+    </div>`;
+  }).join('');
+  box.innerHTML = `
+    <div class="quota-card">
+      <div class="quota-head">
+        <span class="quota-title">Antigravity 额度 · ${(accounts || []).length} 个账号</span>
+        <button class="quota-refresh" onclick="loadQuota(${idx}, true)">刷新额度</button>
+      </div>
+      ${blocks || '<div class="quota-error">该渠道没有可用账号</div>'}
+    </div>`;
+}
+
 function quotaBarClass(fraction) {
   if (fraction >= 0.5) return 'high';
   if (fraction >= 0.2) return 'medium';
@@ -3408,6 +3485,10 @@ function renderQuota(idx) {
   if (state.status === 'error') {
     box.innerHTML = `<div class="quota-error">额度获取失败：${esc(state.message || '未知错误')}
       <button class="quota-refresh" onclick="loadQuota(${idx}, true)">重试</button></div>`;
+    return;
+  }
+  if (state.accounts) {
+    renderQuotaAccounts(idx, box, state.accounts);
     return;
   }
   const data = state.data || {};
@@ -3453,9 +3534,19 @@ function renderQuota(idx) {
     </div>`;
 }
 
+function channelAccounts(p) {
+  const list = p?.preferences?.oauth_accounts;
+  if (Array.isArray(list) && list.length) {
+    return list.filter(a => a && a.refresh_token);
+  }
+  const oauth = p?.preferences?.oauth;
+  return oauth?.refresh_token ? [oauth] : [];
+}
+
 async function loadQuota(idx, force) {
   const p = configData?.providers?.[idx];
-  const oauth = p?.preferences?.oauth;
+  const accounts = channelAccounts(p);
+  const oauth = accounts[0];
   if (!oauth?.refresh_token) {
     QUOTA_CACHE[idx] = { status: 'error', message: '该渠道缺少 OAuth 凭据' };
     renderQuota(idx);
@@ -3469,12 +3560,25 @@ async function loadQuota(idx, force) {
   QUOTA_CACHE[idx] = { status: 'loading' };
   renderQuota(idx);
   try {
-    const data = await oauthAdminPost('/v1/oauth/antigravity/quota', {
-      refresh_token: oauth.refresh_token,
-      project_id: oauth.project_id || '',
-      proxy: p.preferences?.proxy || ''
-    });
-    QUOTA_CACHE[idx] = { status: 'ready', data };
+    if (accounts.length > 1) {
+      const data = await oauthAdminPost('/v1/oauth/antigravity/quota', {
+        accounts: accounts.map(a => ({
+          email: a.email || '',
+          refresh_token: a.refresh_token,
+          project_id: a.project_id || '',
+          proxy: a.proxy || ''
+        })),
+        proxy: p.preferences?.proxy || ''
+      });
+      QUOTA_CACHE[idx] = { status: 'ready', accounts: data.accounts || [] };
+    } else {
+      const data = await oauthAdminPost('/v1/oauth/antigravity/quota', {
+        refresh_token: oauth.refresh_token,
+        project_id: oauth.project_id || '',
+        proxy: p.preferences?.proxy || ''
+      });
+      QUOTA_CACHE[idx] = { status: 'ready', data };
+    }
   } catch (e) {
     QUOTA_CACHE[idx] = { status: 'error', message: e.message };
   }
@@ -3541,6 +3645,8 @@ function openChannelEditor(i, presetType) {
   chAliasMap = {};
   chCustomHeaders = {};
   chOauthState = { refresh_token: '', project_id: '', email: '', auth_url: '' };
+  chOauthAccounts = [];
+  chOauthAwaiting = false;
   $('#chHeaders').value = '';
   $('#chAuthMode').value = preset === 'antigravity' ? 'antigravity_oauth' : 'apikey';
   $('#chOauthCallback').value = '';
@@ -3571,12 +3677,15 @@ function openChannelEditor(i, presetType) {
     const isOauthChannel = (p.engine || '').toLowerCase() === 'antigravity'
       || (oauth && typeof oauth === 'object' && oauth.refresh_token);
     if (isOauthChannel) {
-      chOauthState = {
-        refresh_token: (oauth && oauth.refresh_token) || '',
-        project_id: (oauth && oauth.project_id) || '',
-        email: (oauth && oauth.email) || '',
-        auth_url: ''
-      };
+      const listed = Array.isArray(p.preferences?.oauth_accounts)
+        ? p.preferences.oauth_accounts.filter(a => a && a.refresh_token)
+        : [];
+      chOauthAccounts = listed.length
+        ? listed.map(a => ({ refresh_token: a.refresh_token, project_id: a.project_id || '', email: a.email || '' }))
+        : (oauth && oauth.refresh_token
+          ? [{ refresh_token: oauth.refresh_token, project_id: oauth.project_id || '', email: oauth.email || '' }]
+          : []);
+      chOauthState = { refresh_token: '', project_id: '', email: '', auth_url: '' };
       $('#chAuthMode').value = 'antigravity_oauth';
       renderOauthStatus();
     }
@@ -3639,17 +3748,54 @@ function renderOauthStatus() {
   const el = oauthStatusEl();
   if (!el) return;
   el.classList.remove('ok', 'waiting');
-  if (chOauthState.refresh_token) {
-    el.classList.add('ok');
-    const email = chOauthState.email || '已导入账号';
-    const project = chOauthState.project_id ? ` · 项目 ${chOauthState.project_id}` : ' · 项目未识别';
-    el.innerHTML = `<span class="oauth-dot"></span>已登录 ${esc(email)}${esc(project)}`;
-  } else if (chOauthState.auth_url) {
-    el.classList.add('waiting');
-    el.innerHTML = `<span class="oauth-dot"></span>等待认证中…`;
+  if (chOauthAccounts.length) el.classList.add('ok');
+  if (chOauthAwaiting) el.classList.add('waiting');
+  const rows = chOauthAccounts.map((acc, i) => `<div class="oauth-account">
+      <div class="oauth-account-main">
+        <span class="oauth-account-mail">${esc(acc.email || '未命名账号')}</span>
+        <span class="oauth-account-project">${acc.project_id ? esc(acc.project_id) : '项目未识别'}</span>
+      </div>
+      <button type="button" class="oauth-account-del" onclick="removeOauthAccount(${i})">移除</button>
+    </div>`).join('');
+  const pending = chOauthAwaiting
+    ? `<div class="oauth-pending"><span class="oauth-dot"></span>等待认证中… 完成授权后把回调地址粘贴到下方</div>`
+    : '';
+  el.innerHTML = `
+    <div class="oauth-accounts">${rows || '<div class="oauth-empty">尚未添加账号，额度将由这个渠道唯一账号承担</div>'}</div>
+    ${pending}
+    <button type="button" class="mini-btn oauth-add-btn" onclick="startAnotherAccount()">+ 添加账号</button>`;
+}
+
+function removeOauthAccount(index) {
+  chOauthAccounts.splice(index, 1);
+  renderOauthStatus();
+}
+
+function startAnotherAccount() {
+  chOauthState = { refresh_token: '', project_id: '', email: '', auth_url: '' };
+  chOauthAwaiting = true;
+  applyOauthUrl('');
+  renderOauthStatus();
+  openAntigravityOAuth();
+}
+
+function pushOauthAccount(account) {
+  if (!account.refresh_token) return;
+  const existing = chOauthAccounts.findIndex(a => a.refresh_token === account.refresh_token);
+  const entry = {
+    refresh_token: account.refresh_token,
+    project_id: account.project_id || '',
+    email: account.email || ''
+  };
+  if (existing >= 0) {
+    chOauthAccounts[existing] = entry;
   } else {
-    el.innerHTML = `<span class="oauth-dot"></span>未开始`;
+    chOauthAccounts.push(entry);
   }
+  chOauthState = { refresh_token: '', project_id: '', email: '', auth_url: '' };
+  chOauthAwaiting = false;
+  applyOauthUrl('');
+  renderOauthStatus();
 }
 
 function shortUrl(url) {
@@ -3745,15 +3891,13 @@ async function exchangeAntigravityCode() {
   }
   try {
     const data = await oauthAdminPost('/v1/oauth/antigravity/exchange', { code: raw, proxy: $('#chProxy')?.value.trim() || '' });
-    chOauthState = {
+    pushOauthAccount({
       refresh_token: data.refresh_token || '',
       project_id: data.project_id || '',
-      email: data.email || '',
-      auth_url: ''
-    };
+      email: data.email || ''
+    });
     $('#chOauthCallback').value = '';
-    renderOauthStatus();
-    showToast(chOauthState.project_id ? 'Google 账号已连接' : '登录成功，但未识别到项目 ID');
+    showToast(data.project_id ? 'Google 账号已添加' : '登录成功，但未识别到项目 ID');
   } catch (e) {
     renderOauthStatus();
     showToast('导入失败: ' + e.message);
@@ -3765,13 +3909,11 @@ async function importAntigravityRefreshToken() {
   if (!token || !token.trim()) return;
   try {
     const data = await oauthAdminPost('/v1/oauth/antigravity/import', { refresh_token: token.trim(), proxy: $('#chProxy')?.value.trim() || '' });
-    chOauthState = {
+    pushOauthAccount({
       refresh_token: data.refresh_token || token.trim(),
       project_id: data.project_id || '',
-      email: data.email || '',
-      auth_url: ''
-    };
-    renderOauthStatus();
+      email: data.email || ''
+    });
     showToast('refresh_token 已导入');
   } catch (e) {
     showToast('导入失败: ' + e.message);
@@ -4061,13 +4203,19 @@ function saveChannel() {
     delete preferences.proxy;
   }
   if (isOauth) {
-    preferences.oauth = {
-      refresh_token: chOauthState.refresh_token,
-      project_id: chOauthState.project_id || '',
-      email: chOauthState.email || ''
-    };
+    if (!chOauthAccounts.length) {
+      return showToast('请先添加至少一个 Google 账号');
+    }
+    preferences.oauth_accounts = chOauthAccounts.map(a => ({
+      refresh_token: a.refresh_token,
+      project_id: a.project_id || '',
+      email: a.email || ''
+    }));
+    // Keep the single-account field in sync for older readers.
+    preferences.oauth = { ...preferences.oauth_accounts[0] };
   } else {
     delete preferences.oauth;
+    delete preferences.oauth_accounts;
   }
   if (Object.keys(chCustomHeaders).length > 0) {
     preferences.headers = { ...chCustomHeaders };

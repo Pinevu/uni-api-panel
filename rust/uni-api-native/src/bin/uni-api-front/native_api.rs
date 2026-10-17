@@ -442,6 +442,61 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
                 Ok(params) => params,
                 Err(response) => return response,
             };
+            let proxy = params
+                .get("proxy")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+
+            // Multi-account channels ask for every account in one round trip.
+            if let Some(list) = params.get("accounts").and_then(Value::as_array) {
+                let mut reports = Vec::new();
+                for entry in list {
+                    let email = entry
+                        .get("email")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    let refresh_token = entry
+                        .get("refresh_token")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .trim();
+                    let project = entry
+                        .get("project_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .trim();
+                    let account_proxy = entry
+                        .get("proxy")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .or(proxy);
+                    if refresh_token.is_empty() {
+                        continue;
+                    }
+                    match crate::antigravity_oauth::AntigravityOAuth::fetch_quota(
+                        refresh_token,
+                        project,
+                        account_proxy,
+                    )
+                    .await
+                    {
+                        Ok(report) => {
+                            let mut value = quota_report_json(&report);
+                            value["email"] = json!(email);
+                            value["ok"] = json!(true);
+                            reports.push(value);
+                        }
+                        Err(error) => reports.push(json!({
+                            "email": email,
+                            "ok": false,
+                            "error": error,
+                        })),
+                    }
+                }
+                return json_response(StatusCode::OK, json!({ "accounts": reports }));
+            }
+
             let refresh_token = params
                 .get("refresh_token")
                 .and_then(Value::as_str)
@@ -457,10 +512,6 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
                 .unwrap_or_default()
                 .trim()
                 .to_owned();
-            let proxy = params
-                .get("proxy")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty());
             match crate::antigravity_oauth::AntigravityOAuth::fetch_quota(
                 &refresh_token,
                 &project,
@@ -468,31 +519,32 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
             )
             .await
             {
-                Ok(report) => json_response(
-                    StatusCode::OK,
-                    json!({
-                        "plan": report.plan,
-                        "tier_id": report.tier_id,
-                        "groups": report.groups.iter().map(|group| json!({
-                            "key": group.key,
-                            "label": group.label,
-                            "model_count": group.models.len(),
-                            "five_hour": group.five_hour.as_ref().map(|window| json!({
-                                "remaining": window.remaining,
-                                "reset_time": window.reset_time,
-                            })),
-                            "weekly": group.weekly.as_ref().map(|window| json!({
-                                "remaining": window.remaining,
-                                "reset_time": window.reset_time,
-                            })),
-                        })).collect::<Vec<_>>(),
-                    }),
-                ),
+                Ok(report) => json_response(StatusCode::OK, quota_report_json(&report)),
                 Err(error) => json_error(StatusCode::BAD_GATEWAY, &error),
             }
         }
         _ => json_error(StatusCode::NOT_FOUND, "Not found"),
     }
+}
+
+fn quota_report_json(report: &crate::antigravity_oauth::QuotaReport) -> Value {
+    json!({
+        "plan": report.plan,
+        "tier_id": report.tier_id,
+        "groups": report.groups.iter().map(|group| json!({
+            "key": group.key,
+            "label": group.label,
+            "model_count": group.models.len(),
+            "five_hour": group.five_hour.as_ref().map(|window| json!({
+                "remaining": window.remaining,
+                "reset_time": window.reset_time,
+            })),
+            "weekly": group.weekly.as_ref().map(|window| json!({
+                "remaining": window.remaining,
+                "reset_time": window.reset_time,
+            })),
+        })).collect::<Vec<_>>(),
+    })
 }
 
 async fn read_json_object(

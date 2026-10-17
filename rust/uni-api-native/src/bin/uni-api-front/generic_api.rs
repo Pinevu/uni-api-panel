@@ -371,31 +371,59 @@ pub async fn handle(state: AppState, request: Request, resource_wait: Duration) 
                 }
             }
         }
+        let mut antigravity_account = None;
+        let mut antigravity_project: Option<String> = None;
         if provider.engine.eq_ignore_ascii_case("antigravity") {
-            let refresh_token = provider
-                .preferences
-                .get("oauth")
-                .and_then(|value| value.get("refresh_token"))
-                .and_then(Value::as_str)
-                .unwrap_or_default();
+            let accounts =
+                crate::antigravity_accounts::accounts_from_preferences(&provider.preferences);
+            let multi_account = accounts.len() > 1;
+            let chosen = match state.antigravity_accounts.pick(&accounts, &original_model) {
+                crate::antigravity_accounts::Pick::Selected(index) => accounts[index].clone(),
+                crate::antigravity_accounts::Pick::Cooling { retry_after } => {
+                    last_status = StatusCode::TOO_MANY_REQUESTS;
+                    last_detail = format!(
+                        "All Antigravity accounts are cooling down; retry in {retry_after}s"
+                    );
+                    continue;
+                }
+                crate::antigravity_accounts::Pick::Empty => {
+                    last_status = StatusCode::UNAUTHORIZED;
+                    last_detail =
+                        format!("Provider {} has no Antigravity account", provider.name);
+                    continue;
+                }
+            };
+            let account_proxy = chosen
+                .proxy
+                .clone()
+                .or_else(|| provider.preferences.get("proxy").and_then(Value::as_str).map(str::to_owned));
             match state
                 .antigravity_oauth
-                .resolve(
-                    refresh_token,
-                    provider.preferences.get("proxy").and_then(Value::as_str),
-                )
+                .resolve(&chosen.refresh_token, account_proxy.as_deref())
                 .await
             {
                 Ok(token) => provider_key = token,
                 Err(error) => {
+                    // A dead refresh token must not poison the whole channel:
+                    // park just this account and let the next attempt pick
+                    // another one.
+                    state.antigravity_accounts.mark_failure(&chosen, 401);
                     last_status = StatusCode::UNAUTHORIZED;
                     last_detail = error;
                     continue;
                 }
             }
+            if multi_account {
+                // The request body carries the project id of the account that
+                // actually serves this attempt.
+                antigravity_project = Some(chosen.project_id.clone());
+            }
+            state.antigravity_accounts.spawn_probe(accounts.clone());
+            antigravity_account = Some(chosen);
         }
         let mut prepared = match build_attempt(
             &provider,
+            antigravity_project.as_deref(),
             &provider_key,
             &request_model,
             &original_model,
@@ -445,6 +473,9 @@ pub async fn handle(state: AppState, request: Request, resource_wait: Duration) 
                     .native_responses_config
                     .reset_route_failure(&provider, &original_model)
                     .await;
+                if let Some(account) = antigravity_account.as_ref() {
+                    state.antigravity_accounts.mark_success(account);
+                }
                 let mut request_stat = RequestStat {
                     request_id: request_id.clone(),
                     trace_id: trace_id.clone(),
@@ -521,7 +552,14 @@ pub async fn handle(state: AppState, request: Request, resource_wait: Duration) 
                     provider_api_key: provider_key_raw.clone(),
                     success: false,
                 });
-                if !policy.request_scoped || policy.force_quota_cooldown {
+                if let Some(account) = antigravity_account.as_ref() {
+                    state
+                        .antigravity_accounts
+                        .mark_failure(account, failure.status.as_u16());
+                }
+                if antigravity_account.is_none()
+                    && (!policy.request_scoped || policy.force_quota_cooldown)
+                {
                     state
                         .native_responses_config
                         .cool_failed_route(FailedRoute {
@@ -765,6 +803,7 @@ pub(crate) async fn run_moderation_preflight(
         };
         let prepared = build_attempt(
             &provider,
+            None,
             &provider_key,
             model,
             &original_model,
@@ -1169,6 +1208,7 @@ async fn prepare_input(
 #[allow(clippy::too_many_arguments)]
 fn build_attempt(
     provider: &Provider,
+    project_override: Option<&str>,
     provider_key: &str,
     request_model: &str,
     original_model: &str,
@@ -1329,14 +1369,18 @@ fn build_attempt(
             if let Some(effort) = effort {
                 apply_gemini_thinking_level(&mut gemini_payload, &effort);
             }
-            let project = provider
-                .preferences
-                .get("oauth")
-                .and_then(|value| value.get("project_id"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim()
-                .to_owned();
+            let project = project_override
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    provider
+                        .preferences
+                        .get("oauth")
+                        .and_then(|value| value.get("project_id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .trim()
+                        .to_owned()
+                });
             if project.is_empty() {
                 return Err("Antigravity provider requires preferences.oauth.project_id".into());
             }
@@ -5630,6 +5674,7 @@ mod tests {
         let uri: Uri = "/v1/responses".parse().unwrap();
         let prepared = build_attempt(
             &provider,
+            None,
             "key",
             "public-model",
             "gemini-2.5-pro",
@@ -6019,6 +6064,7 @@ mod tests {
         let uri: Uri = ALPHA_SEARCH_ENDPOINT.parse().unwrap();
         let prepared = build_attempt(
             &provider,
+            None,
             "key",
             "gpt-public",
             "gpt-upstream",
@@ -6075,6 +6121,7 @@ mod tests {
         let uri: Uri = "/v1/moderations".parse().unwrap();
         let prepared = build_attempt(
             &provider,
+            None,
             "key",
             "gpt-public",
             "gpt-upstream",

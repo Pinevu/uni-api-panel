@@ -1,3 +1,4 @@
+mod antigravity_accounts;
 mod antigravity_oauth;
 mod codex_oauth;
 
@@ -7,6 +8,7 @@ const _: fn() = || {
     fn assert_send_sync<T: Send + Sync + 'static>() {}
     assert_send_sync::<proxy::AppState>();
     assert_send_sync::<antigravity_oauth::AntigravityOAuth>();
+    assert_send_sync::<antigravity_accounts::AccountPool>();
 };
 mod config;
 mod generic_api;

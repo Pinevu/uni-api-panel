@@ -40,6 +40,7 @@ pub struct AppState {
     pub native_responses_config: NativeConfigStore,
     pub codex_oauth: CodexOAuthManager,
     pub antigravity_oauth: crate::antigravity_oauth::AntigravityOAuth,
+    pub antigravity_accounts: crate::antigravity_accounts::AccountPool,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -79,6 +80,7 @@ impl AppState {
             native_responses_config: NativeConfigStore::new(),
             codex_oauth: CodexOAuthManager::new(),
             antigravity_oauth: crate::antigravity_oauth::AntigravityOAuth::new(),
+            antigravity_accounts: crate::antigravity_accounts::AccountPool::new(),
         })
     }
 
