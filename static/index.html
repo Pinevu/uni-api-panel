@@ -3078,9 +3078,14 @@ async function checkPing() {
 }
 
 /* ===== Toast Notification ===== */
-function showToast(msg) {
+function showToast(msg, type) {
   const t = $('#toast');
-  t.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> ${esc(msg)}`;
+  const str = String(msg || '');
+  const isErr = type === 'error' || /失败|错误|异常|请先|请填写|请选择|无效|未找到/.test(str);
+  const icon = isErr
+    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
+    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`;
+  t.innerHTML = `${icon} <span>${esc(str)}</span>`;
   t.classList.add('show');
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.remove('show'), 2200);
@@ -4130,7 +4135,7 @@ function syncAuthModeUI() {
     $('#chUrl').value = 'https://daily-cloudcode-pa.googleapis.com';
   }
   renderOauthStatus();
-  if (isOauth && !chOauthState.refresh_token) {
+  if (isOauth && !chOauthAccounts.length && !chOauthState.refresh_token) {
     applyOauthUrl(chOauthState.auth_url || '');
     prepareOauthUrl(false);
   }
@@ -4576,7 +4581,16 @@ function saveChannel() {
   updateChannelCustomHeaders();
 
   if (isOauth) {
-    if (!chOauthState.refresh_token) return showToast('请先完成 Google 登录或导入 refresh_token');
+    if (!chOauthAccounts.length && !chOauthState.refresh_token) {
+      return showToast('请先完成 Google 登录或导入 refresh_token');
+    }
+    if (chOauthState.refresh_token && !chOauthAccounts.some(a => a.refresh_token === chOauthState.refresh_token)) {
+      chOauthAccounts.push({
+        refresh_token: chOauthState.refresh_token,
+        project_id: chOauthState.project_id || '',
+        email: chOauthState.email || ''
+      });
+    }
     if (!url) url = 'https://daily-cloudcode-pa.googleapis.com';
     key = 'oauth';
   }
