@@ -734,21 +734,30 @@ async fn stats_response(state: &AppState, uri: &Uri, headers: &HeaderMap) -> Res
         .and_then(|value| value.parse::<i64>().ok())
         .unwrap_or(24)
         .clamp(1, 720);
-    let live_channels: HashSet<String> = state
-        .native_responses_config
-        .snapshot()
-        .await
-        .map(|snapshot| {
-            snapshot
-                .providers
-                .iter()
-                .map(|provider| provider.name.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
+    // Only annotate when the live configuration is actually loaded; otherwise
+    // every channel would look deleted.
+    let live_channels: Option<HashSet<String>> =
+        state
+            .native_responses_config
+            .snapshot()
+            .await
+            .map(|snapshot| {
+                snapshot
+                    .providers
+                    .iter()
+                    .map(|provider| provider.name.to_string())
+                    .collect()
+            });
     match state.persistence.stats_summary(hours).await {
         Ok(mut value) => {
-            annotate_channel_stats(&mut value, &live_channels);
+            if let Some(live) = live_channels.as_ref() {
+                annotate_channel_stats(&mut value, live);
+            } else if let Some(object) = value.as_object_mut() {
+                object.insert(
+                    "stats_retention_days".into(),
+                    json!(crate::persistence::retention_days()),
+                );
+            }
             json_response(StatusCode::OK, value)
         }
         Err(error) => json_error(StatusCode::SERVICE_UNAVAILABLE, &error),
