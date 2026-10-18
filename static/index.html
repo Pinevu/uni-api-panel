@@ -19,14 +19,14 @@
   --bg-body: #f6f8fb;
   --bg-card: #ffffff;
   --bg-subtle: #f1f4f9;
-  --bg-subtle-hover: #e8ecf4;
-  --border: rgba(226, 232, 240, 0.85);
-  --border-light: rgba(241, 245, 249, 0.9);
+  --bg-subtle-hover: #e7ecf5;
+  --border: rgba(226, 232, 240, 0.9);
+  --border-light: rgba(241, 245, 249, 0.95);
   --border-focus: #6366f1;
 
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text-muted: #8e9bb0;
 
   --primary: #6366f1;
   --primary-hover: #4f46e5;
@@ -34,23 +34,23 @@
   --primary-glow: rgba(99, 102, 241, 0.18);
 
   --success: #10b981;
-  --success-light: rgba(16, 185, 129, 0.09);
+  --success-light: rgba(16, 185, 129, 0.1);
   --warning: #f59e0b;
-  --warning-light: rgba(245, 158, 11, 0.09);
+  --warning-light: rgba(245, 158, 11, 0.1);
   --danger: #ef4444;
-  --danger-light: rgba(239, 68, 68, 0.09);
+  --danger-light: rgba(239, 68, 68, 0.1);
 
   --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
-  --radius-xl: 22px;
+  --radius-xl: 20px;
   --radius-full: 9999px;
 
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.03);
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
-  --shadow-md: 0 4px 14px -2px rgba(15, 23, 42, 0.06), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
-  --shadow-lg: 0 16px 36px -6px rgba(15, 23, 42, 0.12), 0 6px 16px -3px rgba(15, 23, 42, 0.05);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 2px 6px -1px rgba(15, 23, 42, 0.05), 0 1px 3px -1px rgba(15, 23, 42, 0.03);
+  --shadow-md: 0 8px 20px -4px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 20px 40px -8px rgba(15, 23, 42, 0.12), 0 8px 16px -4px rgba(15, 23, 42, 0.04);
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, Monaco, monospace;
@@ -58,12 +58,12 @@
 }
 
 [data-theme="dark"] {
-  --bg-body: #0a0d14;
-  --bg-card: #121622;
-  --bg-subtle: #181e2c;
-  --bg-subtle-hover: #202738;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-light: rgba(255, 255, 255, 0.04);
+  --bg-body: #0b0f19;
+  --bg-card: #131826;
+  --bg-subtle: #192032;
+  --bg-subtle-hover: #222b42;
+  --border: rgba(255, 255, 255, 0.085);
+  --border-light: rgba(255, 255, 255, 0.045);
   --border-focus: #818cf8;
 
   --text-primary: #f8fafc;
@@ -72,20 +72,20 @@
 
   --primary: #818cf8;
   --primary-hover: #a5b4fc;
-  --primary-light: rgba(129, 140, 248, 0.14);
+  --primary-light: rgba(129, 140, 248, 0.15);
   --primary-glow: rgba(129, 140, 248, 0.28);
 
   --success: #34d399;
-  --success-light: rgba(52, 211, 153, 0.12);
+  --success-light: rgba(52, 211, 153, 0.13);
   --warning: #fbbf24;
-  --warning-light: rgba(251, 191, 36, 0.12);
+  --warning-light: rgba(251, 191, 36, 0.13);
   --danger: #f87171;
-  --danger-light: rgba(248, 113, 113, 0.12);
+  --danger-light: rgba(248, 113, 113, 0.13);
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.7);
 }
 
 /* Base & Reset */
@@ -108,7 +108,7 @@ body {
   font-size: 13.5px;
   line-height: 1.55;
   min-height: 100dvh;
-  padding-bottom: 88px;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 20px));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.012em;
@@ -277,20 +277,20 @@ body {
   left: 0;
   right: 0;
   display: flex;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
   border-top: 1px solid var(--border);
   z-index: 50;
-  padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.03);
+  padding: 6px 12px max(8px, env(safe-area-inset-bottom, 8px));
+  box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.04);
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 [data-theme="dark"] .tabbar {
-  background: rgba(10, 13, 20, 0.88);
+  background: rgba(11, 15, 25, 0.86);
   border-top-color: var(--border);
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.5);
 }
 
 .tabbar-item {
@@ -325,12 +325,23 @@ body {
 
 .tabbar-item.active {
   color: var(--primary);
-  font-weight: 650;
+  font-weight: 700;
 }
 
 .tabbar-item.active svg {
-  transform: translateY(-1px) scale(1.05);
+  transform: translateY(-1px) scale(1.06);
   stroke: var(--primary);
+}
+
+.tabbar-item.active::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  width: 18px;
+  height: 2.5px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 1px 5px var(--primary-glow);
 }
 
 /* ==========================================================================
@@ -472,6 +483,59 @@ body {
 }
 
 /* ==========================================================================
+   Empty State Component (Unified across all views)
+   ========================================================================== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 44px 20px;
+  text-align: center;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+  margin: 10px 0;
+  box-shadow: var(--shadow-xs);
+}
+.empty-state.inline {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 24px 16px;
+}
+.empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-xs);
+}
+.empty-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+.empty-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 280px;
+  line-height: 1.55;
+}
+
+/* ==========================================================================
    Metric Cards Grid
    ========================================================================== */
 .metrics {
@@ -491,14 +555,14 @@ body {
 .metric-card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
-  padding: 16px 18px;
+  padding: 15px 16px;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border);
   transition: var(--transition);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  min-height: 86px;
+  justify-content: space-between;
+  min-height: 92px;
   position: relative;
   overflow: hidden;
 }
@@ -509,22 +573,44 @@ body {
   transform: translateY(-1px);
 }
 
-.metric-title {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 6px;
+.metric-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
+.metric-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0;
+}
+
+.metric-icon-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.metric-icon-badge.indigo { background: rgba(99, 102, 241, 0.12); color: var(--primary); }
+.metric-icon-badge.purple { background: rgba(168, 85, 247, 0.12); color: #a855f7; }
+.metric-icon-badge.emerald { background: rgba(16, 185, 129, 0.12); color: var(--success); }
+.metric-icon-badge.amber { background: rgba(245, 158, 11, 0.12); color: var(--warning); }
+
 .metric-value {
-  font-size: 25px;
+  font-size: 26px;
   font-weight: 750;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
   line-height: 1.15;
+  margin-top: 6px;
 }
 
 .metric-value.sm {
@@ -993,15 +1079,16 @@ body {
   gap: 4px;
   cursor: pointer;
   user-select: none;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 11.5px;
-  font-weight: 550;
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: var(--radius-full);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
   transition: var(--transition);
   white-space: nowrap;
   flex-shrink: 0;
-  background: transparent;
 }
 .ch-toggle span {
   white-space: nowrap;
@@ -1544,10 +1631,29 @@ body {
 .modal-actions {
   display: flex;
   gap: 10px;
+  align-items: center;
   justify-content: flex-end;
   margin-top: 20px;
-  padding-top: 14px;
+  margin-left: -24px;
+  margin-right: -24px;
+  margin-bottom: -22px;
+  padding: 12px 24px 16px;
   border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: -22px;
+  background: var(--bg-card);
+  border-bottom-left-radius: var(--radius-xl);
+  border-bottom-right-radius: var(--radius-xl);
+  z-index: 10;
+}
+@media (max-width: 640px) {
+  .modal-actions {
+    margin-left: -16px;
+    margin-right: -16px;
+    margin-bottom: -18px;
+    padding: 12px 16px 14px;
+    bottom: -18px;
+  }
 }
 
 /* ==========================================================================
@@ -2012,31 +2118,52 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
 }
 
 /* ===== Antigravity quota card ===== */
-.quota-box { margin: 10px 0 4px; }
+.quota-box { margin: 10px 0 6px; }
 .quota-card {
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--bg-subtle);
-  padding: 11px 12px;
+  padding: 13px 14px;
+  box-shadow: var(--shadow-xs);
 }
 .quota-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 9px;
+  margin-bottom: 10px;
 }
-.quota-title { font-size: 12.5px; font-weight: 750; color: var(--text-primary); }
+.quota-title { font-size: 13px; font-weight: 750; color: var(--text-primary); }
 .quota-plan {
   font-size: 10.5px;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 2.5px 8px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
   color: var(--text-secondary);
   background: var(--bg-card);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
-.quota-plan.pro { color: #7c3aed; border-color: rgba(124, 58, 237, .28); background: rgba(124, 58, 237, .1); }
-.quota-plan.ultra { color: #b45309; border-color: rgba(180, 83, 9, .28); background: rgba(180, 83, 9, .1); }
+.quota-plan.pro {
+  color: #7c3aed;
+  border-color: rgba(124, 58, 237, .28);
+  background: rgba(124, 58, 237, .1);
+}
+.quota-plan.ultra {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, .28);
+  background: rgba(180, 83, 9, .1);
+}
+[data-theme="dark"] .quota-plan.pro {
+  color: #a78bfa;
+  border-color: rgba(167, 139, 250, .35);
+  background: rgba(167, 139, 250, .14);
+}
+[data-theme="dark"] .quota-plan.ultra {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, .35);
+  background: rgba(251, 191, 36, .14);
+}
 .quota-refresh {
   margin-left: auto;
   border: 1px solid var(--border);
@@ -2044,15 +2171,58 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 650;
-  padding: 3px 9px;
+  padding: 3.5px 10px;
   border-radius: var(--radius-full);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: var(--transition);
 }
-.quota-refresh:active { border-color: var(--primary); color: var(--primary); }
-.quota-account { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-.quota-account:first-of-type { margin-top: 4px; padding-top: 0; border-top: none; }
-.quota-account-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.quota-account-mail { font-size: 12px; font-weight: 650; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-refresh:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+.quota-refresh:active {
+  transform: scale(0.95);
+}
+.quota-account {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
+  transition: var(--transition);
+}
+.quota-account:first-of-type {
+  margin-top: 6px;
+}
+.quota-account:hover {
+  border-color: var(--border-focus);
+}
+.quota-account.error {
+  background: var(--danger-light);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+.quota-account-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px dashed var(--border);
+}
+.quota-account-mail {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
 .quota-group { margin-top: 10px; }
 .quota-group:first-of-type { margin-top: 0; }
 .quota-group-title { font-size: 11px; color: var(--text-muted); font-weight: 650; margin-bottom: 5px; }
@@ -2065,29 +2235,30 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: 12px;
   margin-bottom: 4px;
 }
-.quota-window-label { color: var(--text-secondary); font-weight: 650; }
-.quota-window-value { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--text-muted); }
-.quota-window-value.high { color: #15803d; }
-.quota-window-value.medium { color: #b45309; }
-.quota-window-value.low { color: #b91c1c; }
+.quota-window-label { color: var(--text-secondary); font-weight: 600; font-size: 11.5px; }
+.quota-window-value { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 11.5px; color: var(--text-muted); }
+.quota-window-value.high { color: var(--success); }
+.quota-window-value.medium { color: var(--warning); }
+.quota-window-value.low { color: var(--danger); }
 .quota-bar {
-  height: 5px;
+  height: 6.5px;
   border-radius: 999px;
-  background: var(--border-light);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
   overflow: hidden;
 }
 .quota-bar-fill {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: #22c55e;
-  transition: width .3s ease;
+  background: linear-gradient(90deg, #10b981 0%, #34d399 100%);
+  transition: width .35s ease;
 }
-.quota-bar-fill.medium { background: #f59e0b; }
-.quota-bar-fill.low { background: #ef4444; }
+.quota-bar-fill.medium { background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%); }
+.quota-bar-fill.low { background: linear-gradient(90deg, #ef4444 0%, #f87171 100%); }
 .quota-window-models { margin-top: 4px; font-size: 10.5px; color: var(--text-muted); }
 .quota-idle {
   width: 100%;
@@ -2096,22 +2267,25 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   color: var(--text-muted);
   font-size: 11.5px;
   font-weight: 600;
-  padding: 9px;
+  padding: 10px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   cursor: pointer;
+  transition: var(--transition);
+}
+.quota-idle:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-light);
 }
 .quota-idle.loading { cursor: default; }
-.quota-error {
+.quota-error-desc {
   font-size: 11.5px;
-  color: var(--danger, #b91c1c);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  color: var(--danger);
+  line-height: 1.5;
 }
 .ch-models-toggle {
   font-size: 11px;
@@ -2304,11 +2478,11 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
     <span>概览</span>
   </button>
   <button class="tabbar-item" data-tab="monitor">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12h2m4 0h2m4 0h2m4 0h2"/><path d="M4 8l2 4-2 4"/><path d="M12 6l2 6-2 6"/><path d="M20 4l2 8-2 8"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
     <span>监控</span>
   </button>
   <button class="tabbar-item" data-tab="usage">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
     <span>用量</span>
   </button>
   <button class="tabbar-item" data-tab="channels">
@@ -2821,19 +2995,31 @@ async function loadOverview() {
 
     $('#metricsGrid').innerHTML = `
       <div class="metric-card">
-        <div class="metric-title">总请求数</div>
+        <div class="metric-card-top">
+          <span class="metric-title">总请求数</span>
+          <span class="metric-icon-badge indigo"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+        </div>
         <div class="metric-value">${fmtShort(totalReqs)}</div>
       </div>
       <div class="metric-card">
-        <div class="metric-title">TOKENS 消耗</div>
+        <div class="metric-card-top">
+          <span class="metric-title">TOKENS 消耗</span>
+          <span class="metric-icon-badge purple"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+        </div>
         <div class="metric-value">${fmtShort(totalTokens)}</div>
       </div>
       <div class="metric-card">
-        <div class="metric-title">输入 / 输出</div>
+        <div class="metric-card-top">
+          <span class="metric-title">输入 / 输出</span>
+          <span class="metric-icon-badge emerald"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></span>
+        </div>
         <div class="metric-value sm">${fmtShort(totalPrompt)}<span class="sep">/</span>${fmtShort(totalComp)}</div>
       </div>
       <div class="metric-card">
-        <div class="metric-title">活跃模型</div>
+        <div class="metric-card-top">
+          <span class="metric-title">活跃模型</span>
+          <span class="metric-icon-badge amber"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>
+        </div>
         <div class="metric-value">${activeModels}</div>
       </div>`;
 
@@ -2929,78 +3115,93 @@ async function loadOverview() {
 
     // Donut chart
     const modelCounts = stats.model_request_counts || [];
-    const donutColors = [
-      '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4',
-      '#ec4899', '#3b82f6', '#14b8a6', '#f97316', '#84cc16', '#a855f7',
-      '#64748b', '#e11d48', '#0284c7', '#d97706'
-    ];
-    if (charts.donut) charts.donut.destroy();
-    const dCtx = $('#donutChart')?.getContext('2d');
-    if (dCtx) {
-      charts.donut = new Chart(dCtx, {
-        type: 'doughnut',
-        data: {
-          labels: modelCounts.map(m => m.model),
-          datasets: [{
-            data: modelCounts.map(m => m.count),
-            backgroundColor: modelCounts.map((_, idx) => donutColors[idx % donutColors.length]),
-            borderWidth: 0,
-            hoverOffset: 6
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          cutout: '68%',
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: tooltipBg,
-              titleColor: tooltipTitle,
-              bodyColor: tooltipBody,
-              borderColor: tooltipBorder,
-              borderWidth: 1,
-              padding: 10,
-              cornerRadius: 8,
-              boxPadding: 4,
-              usePointStyle: true,
-              callbacks: {
-                label: function(context) {
-                  const val = context.raw || 0;
-                  const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-                  return ` ${fmtShort(val)} 次 (${pct}%)`;
+    const donutWrap = $('#donutWrap');
+    if (donutWrap) {
+      if (!modelCounts.length) {
+        if (charts.donut) { charts.donut.destroy(); charts.donut = null; }
+        donutWrap.innerHTML = `
+          <div class="empty-state inline" style="width:100%;padding:28px 16px;border:none;background:transparent;margin:0">
+            <div class="empty-icon" style="width:42px;height:42px;margin-bottom:8px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            </div>
+            <div class="empty-title" style="font-size:13px">暂无调用数据</div>
+            <div class="empty-desc" style="font-size:11px">所选时间范围内还没有产生模型调用记录</div>
+          </div>`;
+      } else {
+        if (!$('#donutChart')) {
+          donutWrap.innerHTML = `
+            <div class="donut-chart-box">
+              <canvas id="donutChart"></canvas>
+            </div>
+            <div class="donut-legend-box" id="donutLegendBox"></div>`;
+        }
+        const donutColors = [
+          '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4',
+          '#ec4899', '#3b82f6', '#14b8a6', '#f97316', '#84cc16', '#a855f7',
+          '#64748b', '#e11d48', '#0284c7', '#d97706'
+        ];
+        if (charts.donut) charts.donut.destroy();
+        const dCtx = $('#donutChart')?.getContext('2d');
+        if (dCtx) {
+          charts.donut = new Chart(dCtx, {
+            type: 'doughnut',
+            data: {
+              labels: modelCounts.map(m => m.model),
+              datasets: [{
+                data: modelCounts.map(m => m.count),
+                backgroundColor: modelCounts.map((_, idx) => donutColors[idx % donutColors.length]),
+                borderWidth: 0,
+                hoverOffset: 6
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              animation: false,
+              cutout: '68%',
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  backgroundColor: tooltipBg,
+                  titleColor: tooltipTitle,
+                  bodyColor: tooltipBody,
+                  borderColor: tooltipBorder,
+                  borderWidth: 1,
+                  padding: 10,
+                  cornerRadius: 8,
+                  boxPadding: 4,
+                  callbacks: {
+                    label: function(context) {
+                      const val = context.raw || 0;
+                      const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                      const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                      return ` ${fmtShort(val)} 次 (${pct}%)`;
+                    }
+                  }
                 }
               }
             }
-          }
+          });
         }
-      });
-    }
-
-    // Render custom scrollable & clickable legend
-    const legendBox = $('#donutLegendBox');
-    if (legendBox) {
-      if (!modelCounts.length) {
-        legendBox.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:12px 0">暂无调用数据</div>';
-      } else {
-        const totalModelCalls = modelCounts.reduce((acc, m) => acc + (m.count || 0), 0);
-        legendBox.innerHTML = modelCounts.map((m, idx) => {
-          const color = donutColors[idx % donutColors.length];
-          const pct = totalModelCalls > 0 ? ((m.count / totalModelCalls) * 100).toFixed(1) : '0.0';
-          return `
-            <div class="donut-legend-item" onclick="toggleDonutItem(${idx})" title="点击切换该模型显示状态">
-              <div class="donut-legend-left">
-                <span class="donut-legend-dot" style="background:${color}"></span>
-                <span class="donut-legend-name" title="${esc(m.model)}">${esc(m.model)}</span>
-              </div>
-              <div class="donut-legend-meta">
-                <span>${fmtShort(m.count)}</span>
-                <span class="donut-legend-pct">${pct}%</span>
-              </div>
-            </div>`;
-        }).join('');
+        const legendBox = $('#donutLegendBox');
+        if (legendBox) {
+          const totalModelCalls = modelCounts.reduce((acc, m) => acc + (m.count || 0), 0);
+          legendBox.innerHTML = modelCounts.map((m, idx) => {
+            const color = donutColors[idx % donutColors.length];
+            const pct = totalModelCalls > 0 ? ((m.count / totalModelCalls) * 100).toFixed(1) : '0.0';
+            return `
+              <div class="donut-legend-item" onclick="toggleDonutItem(${idx})" title="点击切换该模型显示状态">
+                <div class="donut-legend-left">
+                  <span class="donut-legend-dot" style="background:${color}"></span>
+                  <span class="donut-legend-name" title="${esc(m.model)}">${esc(m.model)}</span>
+                </div>
+                <div class="donut-legend-meta">
+                  <span>${fmtShort(m.count)}</span>
+                  <span class="donut-legend-pct">${pct}%</span>
+                </div>
+              </div>`;
+          }).join('');
+        }
       }
     }
   } catch (e) {
@@ -3080,7 +3281,7 @@ async function loadMonitor() {
           </div>
         </div>`;
     }
-    $('#monitorContent').innerHTML = html || '<div style="text-align:center;padding:40px;color:var(--text-muted)">暂无监控数据</div>';
+    $('#monitorContent').innerHTML = html || renderEmptyState('暂无监控数据', '选定时间范围内暂无请求日志，发送调用后即可查看上游状态与延迟', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>');
   } catch (e) {
     showToast('监控加载失败');
   }
@@ -3129,12 +3330,12 @@ function renderUsageFiltered() {
     });
 
   if (!rawUsageList.filter(u => !isRecordFromAdminKey(u)).length) {
-    $('#usageContent').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">所选时间范围内暂无客户端用量数据</div>';
+    $('#usageContent').innerHTML = renderEmptyState('暂无客户端用量数据', '所选时间范围内还没有产生 API 消耗统计', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>');
     return;
   }
 
   if (!usage.length) {
-    $('#usageContent').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">未找到匹配的用量数据</div>';
+    $('#usageContent').innerHTML = renderEmptyState('未找到匹配的用量数据', '请尝试调整搜索关键词或选择更宽的时间范围', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>');
     return;
   }
 
@@ -3371,7 +3572,7 @@ async function loadChannels() {
           </div>
         </div>`;
     });
-    $('#channelsContent').innerHTML = html || '<div style="text-align:center;padding:40px;color:var(--text-muted)">暂无渠道配置，请点击上方「添加渠道」</div>';
+    $('#channelsContent').innerHTML = html || renderEmptyState('暂无渠道配置', '点击上方「添加渠道」接入 OpenAI、Antigravity 等上游服务', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>');
     Object.keys(QUOTA_CACHE).forEach(key => renderQuota(Number(key)));
     providers.forEach((p, i) => {
       const hasQuota = document.getElementById('quota-' + i);
@@ -3413,12 +3614,12 @@ function renderQuotaAccounts(idx, box, accounts) {
   };
   const blocks = (accounts || []).map(account => {
     if (!account.ok) {
-      return `<div class="quota-account">
+      return `<div class="quota-account error">
         <div class="quota-account-head">
           <span class="quota-account-mail">${esc(account.email || '未知账号')}</span>
-          <span class="quota-window-value red">读取失败</span>
+          <span class="quota-window-value low">读取失败</span>
         </div>
-        <div class="quota-error" style="margin-top:6px">${esc(account.error || '未知错误')}</div>
+        <div class="quota-error-desc" style="margin-top:4px">${esc(account.error || '未知错误')}</div>
       </div>`;
     }
     const planKey = (account.plan || '').toLowerCase();
@@ -3530,7 +3731,7 @@ function renderQuota(idx) {
         <span class="quota-plan ${planClass}">套餐 ${esc(data.plan || 'Free')}</span>
         <button class="quota-refresh" onclick="loadQuota(${idx}, true)">刷新额度</button>
       </div>
-      ${rows || '<div class="quota-error">上游未返回额度数据</div>'}
+      ${rows || '<div class="quota-error-desc">上游未返回额度数据</div>'}
     </div>`;
 }
 
@@ -4362,7 +4563,7 @@ async function loadKeys() {
           </div>
         </div>`;
     });
-    $('#keysContent').innerHTML = html || '<div style="text-align:center;padding:40px;color:var(--text-muted)">暂无 API Key，请点击上方「新建 API Key」</div>';
+    $('#keysContent').innerHTML = html || renderEmptyState('暂无 API Key', '点击上方「新建 API Key」为客户端创建访问密钥', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>');
   } catch (e) {
     showToast('Key 列表加载失败');
   }
@@ -4715,6 +4916,16 @@ function copyText(text) {
     document.body.removeChild(ta);
   }
   showToast('已复制到剪贴板');
+}
+
+function renderEmptyState(title, desc, iconSvg) {
+  const defaultIcon = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+  return `
+    <div class="empty-state">
+      <div class="empty-icon">${iconSvg || defaultIcon}</div>
+      <div class="empty-title">${esc(title)}</div>
+      ${desc ? `<div class="empty-desc">${esc(desc)}</div>` : ''}
+    </div>`;
 }
 
 function refreshAll() {
