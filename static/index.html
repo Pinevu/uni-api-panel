@@ -371,7 +371,8 @@ body {
   justify-content: space-between;
   margin-bottom: 14px;
   gap: 8px;
-  min-height: 34px;
+  height: 32px;
+  min-height: 32px;
 }
 
 .action-bar .spacer { flex: 1; }
@@ -380,10 +381,12 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  height: 32px;
 }
 
 .key-count-badge {
-  height: 34px;
+  height: 32px;
+  line-height: 30px;
   padding: 0 11px;
   display: inline-flex;
   align-items: center;
@@ -391,29 +394,32 @@ body {
   font-weight: 650;
   border-radius: var(--radius-md);
   box-sizing: border-box;
+  vertical-align: middle;
 }
 
 .filter-select {
   appearance: none;
   -webkit-appearance: none;
-  height: 34px;
+  height: 32px;
+  line-height: 30px;
   box-sizing: border-box;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 0 32px 0 12px;
-  font-size: 12.5px;
+  padding: 0 30px 0 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-primary);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 11px center;
+  background-position: right 10px center;
   cursor: pointer;
   font-family: inherit;
   box-shadow: var(--shadow-xs);
   transition: var(--transition);
   display: inline-flex;
   align-items: center;
+  vertical-align: middle;
 }
 
 .filter-select:focus {
@@ -423,22 +429,24 @@ body {
 }
 
 .filter-bar .btn, .action-bar .btn, .top-toolbar .btn {
-  height: 34px;
+  height: 32px;
+  line-height: 30px;
   box-sizing: border-box;
-  padding: 0 13px;
+  padding: 0 12px;
   border-radius: var(--radius-md);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
-  gap: 6px;
+  gap: 5px;
   box-shadow: var(--shadow-xs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+  vertical-align: middle;
 }
 .filter-bar .btn svg, .action-bar .btn svg, .top-toolbar .btn svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   stroke-width: 2.2;
   flex-shrink: 0;
 }
@@ -3762,6 +3770,206 @@ async function loadChannels() {
   } catch (e) {
     showToast('渠道加载失败');
   }
+}
+
+/* ===== Antigravity quota card ===== */
+const QUOTA_CACHE = {};
+
+function renderQuotaAccounts(idx, box, accounts) {
+  const windowRow = (label, window) => {
+    if (!window || window.remaining === null || window.remaining === undefined) {
+      return `<div class="quota-window">
+        <div class="quota-window-head">
+          <span class="quota-window-label">${label}</span>
+          <span class="quota-window-value muted">上游未提供</span>
+        </div>
+        <div class="quota-bar"><span class="quota-bar-fill none" style="width:0%"></span></div>
+      </div>`;
+    }
+    const value = Math.max(0, Math.min(1, Number(window.remaining)));
+    const percent = Math.round(value * 100);
+    const text = value >= 0.999 ? '额度可用' : `剩余 ${percent}%`;
+    const reset = quotaCountdown(window.reset_time);
+    return `<div class="quota-window">
+      <div class="quota-window-head">
+        <span class="quota-window-label">${label}</span>
+        <span class="quota-window-value ${quotaBarClass(value)}">${text}${reset ? ` · ${reset}` : ''}</span>
+      </div>
+      <div class="quota-bar"><span class="quota-bar-fill ${quotaBarClass(value)}" style="width:${Math.max(2, percent)}%"></span></div>
+    </div>`;
+  };
+  const blocks = (accounts || []).map(account => {
+    if (!account.ok) {
+      return `<div class="quota-account error">
+        <div class="quota-account-head">
+          <span class="quota-account-mail">${esc(account.email || '未知账号')}</span>
+          <span class="quota-window-value low">读取失败</span>
+        </div>
+        <div class="quota-error-desc" style="margin-top:4px">${esc(account.error || '未知错误')}</div>
+      </div>`;
+    }
+    const planKey = (account.plan || '').toLowerCase();
+    const planClass = planKey.includes('ultra') ? 'ultra' : planKey.includes('pro') ? 'pro' : 'free';
+    const rows = (account.groups || []).map(group => `<div class="quota-group">
+        <div class="quota-group-title">${esc(group.label)}${group.model_count ? ` · ${group.model_count} 个模型` : ''}</div>
+        ${windowRow('5 小时限额', group.five_hour)}
+        ${windowRow('周限额', group.weekly)}
+      </div>`).join('');
+    return `<div class="quota-account">
+      <div class="quota-account-head">
+        <span class="quota-account-mail">${esc(account.email || '未知账号')}</span>
+        <span class="quota-plan ${planClass}">${esc(account.plan || 'Free')}</span>
+      </div>
+      ${rows || '<div class="quota-error-desc">上游未返回额度数据</div>'}
+    </div>`;
+  }).join('');
+  box.innerHTML = `
+    <div class="quota-card">
+      <div class="quota-head">
+        <span class="quota-title">Antigravity 额度 · ${(accounts || []).length} 个账号</span>
+        <button class="quota-refresh" onclick="loadQuota(${idx}, true)">刷新额度</button>
+      </div>
+      ${blocks || '<div class="quota-error-desc">该渠道没有可用账号</div>'}
+    </div>`;
+}
+
+function quotaBarClass(fraction) {
+  if (fraction >= 0.5) return 'high';
+  if (fraction >= 0.2) return 'medium';
+  return 'low';
+}
+
+function quotaCountdown(resetTime) {
+  if (!resetTime) return '';
+  const target = new Date(resetTime).getTime();
+  if (Number.isNaN(target)) return '';
+  let diff = Math.max(0, target - Date.now());
+  if (diff <= 0) return '可立即刷新';
+  const minutes = Math.floor(diff / 60000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return `${days} 天 ${hours} 小时 后刷新`;
+  if (hours > 0) return `${hours} 小时 ${mins} 分 后刷新`;
+  return `${Math.max(1, mins)} 分钟后刷新`;
+}
+
+function renderQuota(idx) {
+  const box = document.getElementById('quota-' + idx);
+  if (!box) return;
+  const state = QUOTA_CACHE[idx];
+  if (!state || state.status === 'idle') {
+    box.innerHTML = `<button class="quota-idle" onclick="loadQuota(${idx}, true)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+      点击查看额度
+    </button>`;
+    return;
+  }
+  if (state.status === 'loading') {
+    box.innerHTML = '<div class="quota-idle loading">正在加载额度…</div>';
+    return;
+  }
+  if (state.status === 'error') {
+    box.innerHTML = `<div class="quota-error-desc" style="display:flex;align-items:center;gap:8px">额度获取失败：${esc(state.message || '未知错误')}
+      <button class="quota-refresh" onclick="loadQuota(${idx}, true)">重试</button></div>`;
+    return;
+  }
+  if (state.accounts) {
+    renderQuotaAccounts(idx, box, state.accounts);
+    return;
+  }
+  const data = state.data || {};
+  const groups = data.groups || [];
+  const planKey = (data.plan || '').toLowerCase();
+  const planClass = planKey.includes('ultra') ? 'ultra' : planKey.includes('pro') ? 'pro' : 'free';
+  const windowRow = (label, window) => {
+    if (!window || window.remaining === null || window.remaining === undefined) {
+      return `<div class="quota-window">
+        <div class="quota-window-head">
+          <span class="quota-window-label">${label}</span>
+          <span class="quota-window-value muted">上游未提供</span>
+        </div>
+        <div class="quota-bar"><span class="quota-bar-fill none" style="width:0%"></span></div>
+      </div>`;
+    }
+    const value = Math.max(0, Math.min(1, Number(window.remaining)));
+    const percent = Math.round(value * 100);
+    const available = value >= 0.999;
+    const text = available ? '额度可用' : `剩余 ${percent}%`;
+    const reset = quotaCountdown(window.reset_time);
+    return `<div class="quota-window">
+      <div class="quota-window-head">
+        <span class="quota-window-label">${label}</span>
+        <span class="quota-window-value ${quotaBarClass(value)}">${text}${reset ? ` · ${reset}` : ''}</span>
+      </div>
+      <div class="quota-bar"><span class="quota-bar-fill ${quotaBarClass(value)}" style="width:${Math.max(2, percent)}%"></span></div>
+    </div>`;
+  };
+  const rows = groups.map(group => `<div class="quota-group">
+      <div class="quota-group-title">${esc(group.label)}${group.model_count ? ` · ${group.model_count} 个模型` : ''}</div>
+      ${windowRow('5 小时限额', group.five_hour)}
+      ${windowRow('周限额', group.weekly)}
+    </div>`).join('');
+  box.innerHTML = `
+    <div class="quota-card">
+      <div class="quota-head">
+        <span class="quota-title">Antigravity 额度</span>
+        <span class="quota-plan ${planClass}">套餐 ${esc(data.plan || 'Free')}</span>
+        <button class="quota-refresh" onclick="loadQuota(${idx}, true)">刷新额度</button>
+      </div>
+      ${rows || '<div class="quota-error-desc">上游未返回额度数据</div>'}
+    </div>`;
+}
+
+function channelAccounts(p) {
+  const list = p?.preferences?.oauth_accounts;
+  if (Array.isArray(list) && list.length) {
+    return list.filter(a => a && a.refresh_token);
+  }
+  const oauth = p?.preferences?.oauth;
+  return oauth?.refresh_token ? [oauth] : [];
+}
+
+async function loadQuota(idx, force) {
+  const p = configData?.providers?.[idx];
+  const accounts = channelAccounts(p);
+  const oauth = accounts[0];
+  if (!oauth?.refresh_token) {
+    QUOTA_CACHE[idx] = { status: 'error', message: '该渠道缺少 OAuth 凭据' };
+    renderQuota(idx);
+    return;
+  }
+  const cached = QUOTA_CACHE[idx];
+  if (!force && cached && cached.status === 'ready') {
+    renderQuota(idx);
+    return;
+  }
+  QUOTA_CACHE[idx] = { status: 'loading' };
+  renderQuota(idx);
+  try {
+    if (accounts.length > 1) {
+      const data = await oauthAdminPost('/v1/oauth/antigravity/quota', {
+        accounts: accounts.map(a => ({
+          email: a.email || '',
+          refresh_token: a.refresh_token,
+          project_id: a.project_id || '',
+          proxy: a.proxy || ''
+        })),
+        proxy: p.preferences?.proxy || ''
+      });
+      QUOTA_CACHE[idx] = { status: 'ready', accounts: data.accounts || [] };
+    } else {
+      const data = await oauthAdminPost('/v1/oauth/antigravity/quota', {
+        refresh_token: oauth.refresh_token,
+        project_id: oauth.project_id || '',
+        proxy: p.preferences?.proxy || ''
+      });
+      QUOTA_CACHE[idx] = { status: 'ready', data };
+    }
+  } catch (e) {
+    QUOTA_CACHE[idx] = { status: 'error', message: e.message };
+  }
+  renderQuota(idx);
 }
 
 function toggleChBody(btn) {
