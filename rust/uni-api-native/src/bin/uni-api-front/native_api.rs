@@ -160,6 +160,11 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
             match state.config_publisher.apply_patch(&patch).await {
                 Ok(()) => {
                     let _ = state.native_responses_config.refresh().await;
+                    if let Some((from, to)) = channel_rename(&patch) {
+                        if let Err(error) = state.persistence.rename_channel(&from, &to).await {
+                            eprintln!("rename channel statistics {from} -> {to} failed: {error}");
+                        }
+                    }
                     json_response(StatusCode::OK, json!({"message":"API config updated"}))
                 }
                 Err(error) => json_error(StatusCode::CONFLICT, &error),
@@ -729,10 +734,61 @@ async fn stats_response(state: &AppState, uri: &Uri, headers: &HeaderMap) -> Res
         .and_then(|value| value.parse::<i64>().ok())
         .unwrap_or(24)
         .clamp(1, 720);
+    let live_channels: HashSet<String> = state
+        .native_responses_config
+        .snapshot()
+        .await
+        .map(|snapshot| {
+            snapshot
+                .providers
+                .iter()
+                .map(|provider| provider.name.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
     match state.persistence.stats_summary(hours).await {
-        Ok(value) => json_response(StatusCode::OK, value),
+        Ok(mut value) => {
+            annotate_channel_stats(&mut value, &live_channels);
+            json_response(StatusCode::OK, value)
+        }
         Err(error) => json_error(StatusCode::SERVICE_UNAVAILABLE, &error),
     }
+}
+
+/// Marks every channel row with `active` so the monitor page can tell live
+/// channels apart from channels that were deleted (their history survives until
+/// the retention window expires).
+fn annotate_channel_stats(value: &mut Value, live: &HashSet<String>) {
+    for key in ["channel_success_rates", "channel_model_success_rates"] {
+        let Some(rows) = value.get_mut(key).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for row in rows.iter_mut() {
+            let active = row
+                .get("provider")
+                .and_then(Value::as_str)
+                .map(|name| live.contains(name))
+                .unwrap_or(false);
+            if let Some(object) = row.as_object_mut() {
+                object.insert("active".into(), Value::Bool(active));
+            }
+        }
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "stats_retention_days".into(),
+            json!(crate::persistence::retention_days()),
+        );
+    }
+}
+
+/// Optional `channel_rename: {from, to}` hint sent by the dashboard when a
+/// channel is renamed; the historical statistics are moved onto the new name.
+fn channel_rename(patch: &Value) -> Option<(String, String)> {
+    let object = patch.get("channel_rename")?.as_object()?;
+    let from = object.get("from")?.as_str()?.trim().to_owned();
+    let to = object.get("to")?.as_str()?.trim().to_owned();
+    (!from.is_empty() && !to.is_empty() && from != to).then_some((from, to))
 }
 
 async fn token_usage_response(state: &AppState, uri: &Uri, headers: &HeaderMap) -> Response<Body> {

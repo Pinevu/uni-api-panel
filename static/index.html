@@ -1022,6 +1022,53 @@ body {
   border-color: var(--border-focus);
 }
 
+/* Channel history cards for deleted channels: muted + dashed so they read as
+   archived data instead of a live channel. */
+.ch-card.is-archived {
+  background: var(--bg-subtle);
+  border-style: dashed;
+  box-shadow: none;
+}
+.ch-card.is-archived:hover {
+  box-shadow: var(--shadow-xs);
+  border-color: var(--border);
+}
+.ch-archived-badge {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  white-space: nowrap;
+}
+.mon-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 20px 2px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+.mon-section-head .mon-section-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.mon-retention-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 0 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .ch-top {
   display: flex;
   align-items: center;
@@ -2915,6 +2962,8 @@ const $$ = s => document.querySelectorAll(s);
 let currentKey = localStorage.getItem('uh_key') || '';
 let charts = {};
 let configData = null;
+// Set when a channel is renamed so the backend can move its statistics over.
+let pendingChannelRename = null;
 let chAllModels = [];
 let chSelectedSet = new Set();
 let chAliasMap = {}; // { [upstream_model]: custom_alias }
@@ -3378,21 +3427,23 @@ async function loadMonitor() {
       api('/v1/stats?hours=' + hours),
       hours === 720 ? Promise.resolve(null) : api('/v1/stats?hours=720')
     ]);
-    const ch = stats.channel_success_rates || [];
+    const ch = (stats.channel_success_rates || []).slice()
+      .sort((a, b) => (b.total_requests || 0) - (a.total_requests || 0));
     const cm = stats.channel_model_success_rates || [];
     const ips = (hours === 720 ? stats : (stats30d || stats)).ip_request_counts || [];
+    const retentionDays = Number(stats.stats_retention_days || 30);
 
-    let html = '';
-    ch.forEach(c => {
+    const renderChannelCard = (c, archived) => {
       const rate = (c.success_rate * 100).toFixed(1);
       const color = c.success_rate >= 0.95 ? 'var(--success)' : c.success_rate >= 0.7 ? 'var(--warning)' : 'var(--danger)';
       const models = cm.filter(m => m.provider === c.provider);
-      html += `
-        <div class="ch-card">
+      return `
+        <div class="ch-card${archived ? ' is-archived' : ''}">
           <div class="ch-top">
             <div class="ch-name-row">
               <span class="key-dot" style="background:${color}"></span>
               <span class="ch-name">${esc(c.provider)}</span>
+              ${archived ? '<span class="ch-archived-badge">已删除</span>' : ''}
             </div>
             <div style="text-align:right">
               <span style="font-size:18px;font-weight:700;color:${color}">${rate}%</span>
@@ -3407,7 +3458,30 @@ async function loadMonitor() {
               </div>`).join('')}
           </div>
         </div>`;
-    });
+    };
+
+    const activeChannels = ch.filter(c => c.active !== false);
+    const archivedChannels = ch.filter(c => c.active === false);
+
+    let html = activeChannels.map(c => renderChannelCard(c, false)).join('');
+
+    if (archivedChannels.length) {
+      html += `
+        <div class="mon-section-head">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span>已删除渠道的历史数据</span>
+            <span class="mon-section-count">${archivedChannels.length} 个</span>
+          </div>
+          <button class="mini-btn" id="monArchivedToggle" onclick="toggleArchivedChannels()">展开</button>
+        </div>
+        <div id="monArchivedList" style="display:none">
+          ${archivedChannels.map(c => renderChannelCard(c, true)).join('')}
+        </div>`;
+    }
+
+    if (ch.length) {
+      html += `<div class="mon-retention-note">统计数据保留最近 ${retentionDays} 天，超期自动清理</div>`;
+    }
 
     if (ips.length) {
       const showLimit = 5;
@@ -3443,6 +3517,15 @@ async function loadMonitor() {
   } catch (e) {
     showToast('监控加载失败');
   }
+}
+
+function toggleArchivedChannels() {
+  const list = $('#monArchivedList');
+  const btn = $('#monArchivedToggle');
+  if (!list || !btn) return;
+  const show = list.style.display === 'none';
+  list.style.display = show ? '' : 'none';
+  btn.textContent = show ? '收起' : '展开';
 }
 
 function toggleIpStatsList(total) {
@@ -4671,6 +4754,9 @@ function saveChannel() {
   if (!configData.providers) configData.providers = [];
 
   if (idx >= 0) {
+    if (previous.provider && previous.provider !== name) {
+      pendingChannelRename = { from: previous.provider, to: name };
+    }
     configData.providers[idx] = provider;
   } else {
     configData.providers.push(provider);
@@ -4686,17 +4772,20 @@ function removeProvider(i) {
 
 async function saveConfig(callback) {
   if (!configData) return;
+  const payload = pendingChannelRename ? { ...configData, channel_rename: pendingChannelRename } : configData;
   try {
     await api('/v1/api_config/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentKey },
-      body: JSON.stringify(configData)
+      body: JSON.stringify(payload)
     });
     showToast('配置已持久化生效');
     loadChannels();
     callback?.();
   } catch (e) {
     showToast('保存失败: ' + e.message);
+  } finally {
+    pendingChannelRename = null;
   }
 }
 

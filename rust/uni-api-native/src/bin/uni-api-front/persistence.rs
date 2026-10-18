@@ -175,6 +175,74 @@ impl Persistence {
         }
     }
 
+    /// Deletes request/channel statistics older than `retention_days`.
+    /// Returns `(request_rows, channel_rows)`.
+    pub async fn prune_stats(&self, retention_days: i64) -> Result<(u64, u64), String> {
+        let days = retention_days.clamp(1, 3650);
+        match self.backend.as_ref() {
+            Backend::Disabled => Ok((0, 0)),
+            Backend::Sqlite { path } => {
+                let path = path.clone();
+                tokio::task::spawn_blocking(move || sqlite_prune_stats(&path, days))
+                    .await
+                    .map_err(|error| format!("join SQLite stats prune: {error}"))?
+            }
+            Backend::Postgres { client } => {
+                let requests = client
+                    .execute(
+                        "DELETE FROM request_stats WHERE timestamp < NOW() - ($1::bigint * INTERVAL '1 day')",
+                        &[&days],
+                    )
+                    .await
+                    .map_err(|error| format!("prune PostgreSQL request stats: {error}"))?;
+                let channels = client
+                    .execute(
+                        "DELETE FROM channel_stats WHERE timestamp < NOW() - ($1::bigint * INTERVAL '1 day')",
+                        &[&days],
+                    )
+                    .await
+                    .map_err(|error| format!("prune PostgreSQL channel stats: {error}"))?;
+                Ok((requests, channels))
+            }
+        }
+    }
+
+    /// Moves historical statistics from a renamed channel onto its new name so
+    /// the monitor page keeps a single continuous record.
+    pub async fn rename_channel(&self, from: &str, to: &str) -> Result<u64, String> {
+        if from == to || from.is_empty() || to.is_empty() {
+            return Ok(0);
+        }
+        match self.backend.as_ref() {
+            Backend::Disabled => Ok(0),
+            Backend::Sqlite { path } => {
+                let path = path.clone();
+                let from = from.to_owned();
+                let to = to.to_owned();
+                tokio::task::spawn_blocking(move || sqlite_rename_channel(&path, &from, &to))
+                    .await
+                    .map_err(|error| format!("join SQLite channel rename: {error}"))?
+            }
+            Backend::Postgres { client } => {
+                let channels = client
+                    .execute(
+                        "UPDATE channel_stats SET provider = $2 WHERE provider = $1",
+                        &[&from, &to],
+                    )
+                    .await
+                    .map_err(|error| format!("rename PostgreSQL channel stats: {error}"))?;
+                client
+                    .execute(
+                        "UPDATE request_stats SET provider = $2 WHERE provider = $1",
+                        &[&from, &to],
+                    )
+                    .await
+                    .map_err(|error| format!("rename PostgreSQL request stats: {error}"))?;
+                Ok(channels)
+            }
+        }
+    }
+
     pub async fn token_usage(
         &self,
         api_key: Option<&str>,
@@ -312,6 +380,41 @@ fn sqlite_connection(path: &PathBuf) -> Result<Connection, String> {
         .pragma_update(None, "journal_mode", "WAL")
         .map_err(|error| format!("configure SQLite WAL: {error}"))?;
     Ok(connection)
+}
+
+fn sqlite_prune_stats(path: &PathBuf, days: i64) -> Result<(u64, u64), String> {
+    let connection = sqlite_connection(path)?;
+    let modifier = format!("-{days} days");
+    let requests = connection
+        .execute(
+            "DELETE FROM request_stats WHERE timestamp < datetime('now', ?1)",
+            params![modifier],
+        )
+        .map_err(|error| format!("prune SQLite request stats: {error}"))?;
+    let channels = connection
+        .execute(
+            "DELETE FROM channel_stats WHERE timestamp < datetime('now', ?1)",
+            params![modifier],
+        )
+        .map_err(|error| format!("prune SQLite channel stats: {error}"))?;
+    Ok((requests as u64, channels as u64))
+}
+
+fn sqlite_rename_channel(path: &PathBuf, from: &str, to: &str) -> Result<u64, String> {
+    let connection = sqlite_connection(path)?;
+    let channels = connection
+        .execute(
+            "UPDATE channel_stats SET provider = ?2 WHERE provider = ?1",
+            params![from, to],
+        )
+        .map_err(|error| format!("rename SQLite channel stats: {error}"))?;
+    connection
+        .execute(
+            "UPDATE request_stats SET provider = ?2 WHERE provider = ?1",
+            params![from, to],
+        )
+        .map_err(|error| format!("rename SQLite request stats: {error}"))?;
+    Ok(channels as u64)
 }
 
 fn sqlite_write(path: &PathBuf, event: WriteEvent) -> Result<(), String> {
@@ -735,6 +838,17 @@ fn mask_key(value: &str) -> String {
     }
 }
 
+/// How many days of request/channel statistics are kept.  Configurable via
+/// `STATS_RETENTION_DAYS` (default 30, clamped to 1..=3650).
+pub fn retention_days() -> i64 {
+    std::env::var("STATS_RETENTION_DAYS")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|days| *days >= 1)
+        .unwrap_or(30)
+        .min(3650)
+}
+
 fn unix_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -841,6 +955,45 @@ mod tests {
             persistence.stats_summary(24).await.unwrap(),
             json!({"stats": {}})
         );
+    }
+
+    #[tokio::test]
+    async fn retention_prunes_old_rows_and_rename_moves_history() {
+        let dir = std::env::temp_dir().join(format!("uni-api-stats-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("stats.db");
+        let _ = std::fs::remove_file(&path);
+        initialize_sqlite(path.clone()).await.unwrap();
+
+        let connection = sqlite_connection(&path).unwrap();
+        for (request, offset) in [("r1", "-40 days"), ("r2", "0 days")] {
+            connection
+                .execute(
+                    "INSERT INTO channel_stats (request_id, provider, model, api_key, provider_api_key, success, timestamp) VALUES (?1, 'old-name', 'm', 'k', 'pk', 1, datetime('now', ?2))",
+                    params![request, offset],
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        let persistence = Persistence {
+            backend: Arc::new(Backend::Sqlite { path: path.clone() }),
+            writer: None,
+        };
+        assert_eq!(persistence.prune_stats(30).await.unwrap(), (0, 1));
+        assert_eq!(persistence.rename_channel("old-name", "new-name").await.unwrap(), 1);
+
+        let connection = sqlite_connection(&path).unwrap();
+        let remaining: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM channel_stats WHERE provider = 'new-name'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(connection);
+        assert_eq!(remaining, 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

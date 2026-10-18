@@ -74,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let _ = state.native_responses_config.refresh().await;
     state.native_responses_config.start_watcher();
+    spawn_stats_maintenance(state.clone());
 
     let app = Router::new()
         .fallback(any(proxy::handler))
@@ -115,6 +116,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+/// Periodically drops statistics outside the retention window so the monitor
+/// page cannot accumulate channels that no longer exist forever.
+fn spawn_stats_maintenance(state: AppState) {
+    tokio::spawn(async move {
+        let days = persistence::retention_days();
+        loop {
+            match state.persistence.prune_stats(days).await {
+                Ok((requests, channels)) if requests > 0 || channels > 0 => eprintln!(
+                    "statistics retention: removed {requests} request rows and {channels} channel rows older than {days} days"
+                ),
+                Ok(_) => {}
+                Err(error) => eprintln!("statistics retention failed: {error}"),
+            }
+            tokio::time::sleep(Duration::from_secs(6 * 60 * 60)).await;
+        }
+    });
 }
 
 fn spawn_python(port: u16, token: &str) -> Result<Child, std::io::Error> {
