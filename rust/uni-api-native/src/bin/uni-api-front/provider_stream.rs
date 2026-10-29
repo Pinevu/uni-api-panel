@@ -569,18 +569,20 @@ impl StreamState {
                 output.push(self.chunk(json!({field:text}), None, None));
             }
             if let Some(call) = part.get("functionCall") {
-                let call_id = call
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| {
-                        crate::generic_api::gemini_call_id(
-                            part.get("thoughtSignature")
-                                .or_else(|| part.get("thought_signature"))
-                                .and_then(Value::as_str),
-                            self.next_tool_index + 1,
-                        )
-                    });
+                let signature = part
+                    .get("thoughtSignature")
+                    .or_else(|| part.get("thought_signature"))
+                    .and_then(Value::as_str);
+                let call_id = if let Some(sig) = signature {
+                    crate::generic_api::gemini_call_id(Some(sig), self.next_tool_index + 1)
+                } else {
+                    call.get("id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            crate::generic_api::gemini_call_id(None, self.next_tool_index + 1)
+                        })
+                };
                 let index = self.tool_index(&call_id);
                 output.push(self.chunk(
                     json!({"tool_calls":[{"index":index,"id":call_id,"type":"function","function":{"name":call.get("name").cloned().unwrap_or(Value::Null),"arguments":serde_json::to_string(call.get("args").unwrap_or(&json!({}))).unwrap_or_else(|_| "{}".into())}}]}),

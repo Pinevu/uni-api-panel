@@ -2980,15 +2980,22 @@ fn chat_to_gemini(input: &Value, original_model: &str) -> Result<Value, String> 
                         "args":arguments,
                     }
                 });
-                if let Some(signature) = tool
-                    .get("id")
+                let signature = tool
+                    .get("thoughtSignature")
+                    .or_else(|| tool.get("thought_signature"))
+                    .or_else(|| tool.pointer("/function/thoughtSignature"))
+                    .or_else(|| tool.pointer("/function/thought_signature"))
                     .and_then(Value::as_str)
-                    .and_then(decode_gemini_thought_signature)
-                {
-                    part.as_object_mut()
-                        .expect("Gemini function call part")
-                        .insert("thoughtSignature".into(), Value::String(signature));
-                }
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        tool.get("id")
+                            .and_then(Value::as_str)
+                            .and_then(decode_gemini_thought_signature)
+                    })
+                    .unwrap_or_else(|| "skip_thought_signature_validator".to_owned());
+                part.as_object_mut()
+                    .expect("Gemini function call part")
+                    .insert("thoughtSignature".into(), Value::String(signature));
                 parts.push(part);
             }
             if !parts.is_empty() {
@@ -3002,6 +3009,7 @@ fn chat_to_gemini(input: &Value, original_model: &str) -> Result<Value, String> 
     if contents.is_empty() {
         contents.push(json!({"role":"user","parts":[{"text":"No messages"}]}));
     }
+    ensure_gemini_thought_signatures(&mut contents);
     let mut generation = Map::new();
     if let Some(value) = root.get("temperature") {
         generation.insert("temperature".into(), value.clone());
@@ -4716,8 +4724,30 @@ fn apply_antigravity_request_tuning(root: &mut Map<String, Value>, provider: &Pr
     let Some(request) = root.get_mut("request").and_then(Value::as_object_mut) else {
         return;
     };
+    if let Some(contents) = request.get_mut("contents").and_then(Value::as_array_mut) {
+        ensure_gemini_thought_signatures(contents);
+    }
     apply_overrides(&mut *request, provider, "");
     apply_reasoning_effort_map(&mut *request, provider);
+}
+
+pub(crate) fn ensure_gemini_thought_signatures(contents: &mut [Value]) {
+    for content in contents {
+        if let Some(parts) = content.get_mut("parts").and_then(Value::as_array_mut) {
+            for part in parts {
+                if let Some(part_obj) = part.as_object_mut() {
+                    if part_obj.contains_key("functionCall")
+                        && !part_obj.contains_key("thoughtSignature")
+                    {
+                        part_obj.insert(
+                            "thoughtSignature".into(),
+                            Value::String("skip_thought_signature_validator".into()),
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn antigravity_url(base: &str, stream: bool) -> Result<String, String> {
@@ -5793,6 +5823,40 @@ mod tests {
         assert_eq!(
             q_items_props["timeout"]["description"],
             "timeout in seconds\nDefault: 10"
+        );
+    }
+
+    #[test]
+    fn gemini_function_calls_always_have_thought_signatures_even_without_call_id_signature() {
+        let input = json!({
+            "messages":[
+                {"role":"user","content":"run command"},
+                {
+                    "role":"assistant",
+                    "content":null,
+                    "tool_calls":[{
+                        "id":"call_legacy_12345",
+                        "type":"function",
+                        "function":{"name":"shell_execute","arguments":"{\"cmd\":\"ls\"}"}
+                    }]
+                },
+                {
+                    "role":"tool",
+                    "tool_call_id":"call_legacy_12345",
+                    "content":"file.txt"
+                }
+            ]
+        });
+        let gemini = chat_to_gemini(&input, "gemini-3.8-flash-low").unwrap();
+        let contents = gemini["contents"].as_array().expect("contents array");
+        assert_eq!(contents.len(), 3);
+
+        // Assistant model turn at contents[1]
+        let model_part = &contents[1]["parts"][0];
+        assert_eq!(model_part["functionCall"]["name"], "shell_execute");
+        assert_eq!(
+            model_part["thoughtSignature"],
+            "skip_thought_signature_validator"
         );
     }
 
