@@ -37,6 +37,8 @@ pub struct RequestStat {
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
     pub total_tokens: i64,
+    /// Prompt tokens served from the upstream provider's prompt cache.
+    pub cached_tokens: i64,
     pub prompt_price: f64,
     pub completion_price: f64,
     pub timing_spans: String,
@@ -364,7 +366,20 @@ async fn initialize_sqlite(path: PathBuf) -> Result<(), String> {
         let connection = sqlite_connection(&path)?;
         connection
             .execute_batch(SQLITE_SCHEMA)
-            .map_err(|error| format!("initialize SQLite stats schema: {error}"))
+            .map_err(|error| format!("initialize SQLite stats schema: {error}"))?;
+        // Existing databases predate the cache column; add it in place. SQLite has
+        // no `ADD COLUMN IF NOT EXISTS`, so a duplicate-column error is expected
+        // and means the migration already ran.
+        if let Err(error) = connection.execute(
+            "ALTER TABLE request_stats ADD COLUMN cached_tokens INTEGER DEFAULT 0",
+            [],
+        ) {
+            let message = error.to_string();
+            if !message.contains("duplicate column name") {
+                return Err(format!("migrate SQLite cached_tokens column: {message}"));
+            }
+        }
+        Ok(())
     })
     .await
     .map_err(|error| format!("join SQLite schema initialization: {error}"))?
@@ -422,7 +437,7 @@ fn sqlite_write(path: &PathBuf, event: WriteEvent) -> Result<(), String> {
     match event {
         WriteEvent::Request(stat) => connection
             .execute(
-                "INSERT INTO request_stats (request_id, trace_id, endpoint, client_ip, process_time, first_response_time, provider, model, api_key, is_flagged, text, prompt_tokens, completion_tokens, total_tokens, prompt_price, completion_price, timing_spans) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                "INSERT INTO request_stats (request_id, trace_id, endpoint, client_ip, process_time, first_response_time, provider, model, api_key, is_flagged, text, prompt_tokens, completion_tokens, total_tokens, cached_tokens, prompt_price, completion_price, timing_spans) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
                 params![
                     stat.request_id,
                     stat.trace_id,
@@ -438,6 +453,7 @@ fn sqlite_write(path: &PathBuf, event: WriteEvent) -> Result<(), String> {
                     stat.prompt_tokens,
                     stat.completion_tokens,
                     stat.total_tokens,
+                    stat.cached_tokens,
                     stat.prompt_price,
                     stat.completion_price,
                     stat.timing_spans,
@@ -466,14 +482,22 @@ async fn initialize_postgres(client: &Client) -> Result<(), String> {
     client
         .batch_execute(POSTGRES_SCHEMA)
         .await
-        .map_err(|error| format!("initialize PostgreSQL stats schema: {error}"))
+        .map_err(|error| format!("initialize PostgreSQL stats schema: {error}"))?;
+    client
+        .execute(
+            "ALTER TABLE request_stats ADD COLUMN IF NOT EXISTS cached_tokens BIGINT DEFAULT 0",
+            &[],
+        )
+        .await
+        .map_err(|error| format!("migrate PostgreSQL cached_tokens column: {error}"))?;
+    Ok(())
 }
 
 async fn postgres_write(client: &Client, event: WriteEvent) -> Result<(), String> {
     match event {
         WriteEvent::Request(stat) => client
             .execute(
-                "INSERT INTO request_stats (request_id, trace_id, endpoint, client_ip, process_time, first_response_time, provider, model, api_key, is_flagged, text, prompt_tokens, completion_tokens, total_tokens, prompt_price, completion_price, timing_spans) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",
+                "INSERT INTO request_stats (request_id, trace_id, endpoint, client_ip, process_time, first_response_time, provider, model, api_key, is_flagged, text, prompt_tokens, completion_tokens, total_tokens, cached_tokens, prompt_price, completion_price, timing_spans) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
                 &[
                     &stat.request_id,
                     &stat.trace_id,
@@ -489,6 +513,7 @@ async fn postgres_write(client: &Client, event: WriteEvent) -> Result<(), String
                     &stat.prompt_tokens,
                     &stat.completion_tokens,
                     &stat.total_tokens,
+                    &stat.cached_tokens,
                     &stat.prompt_price,
                     &stat.completion_price,
                     &stat.timing_spans,
@@ -530,14 +555,87 @@ fn sqlite_stats_summary(path: &PathBuf, hours: i64) -> Result<Value, String> {
         cutoff,
         false,
     )?;
+    let cache_model = sqlite_cache_rates(&connection, cutoff, true)?;
+    let cache_channel = sqlite_cache_rates(&connection, cutoff, false)?;
     Ok(json!({
         "time_range": format!("Last {} hours", hours.max(1)),
-        "channel_model_success_rates": channel_model,
-        "channel_success_rates": channel,
+        "channel_model_success_rates": merge_cache_rates(channel_model, &cache_model, true),
+        "channel_success_rates": merge_cache_rates(channel, &cache_channel, false),
         "model_request_counts": sqlite_grouped_counts(&connection, "model", cutoff)?,
         "endpoint_request_counts": sqlite_grouped_counts(&connection, "endpoint", cutoff)?,
         "ip_request_counts": sqlite_grouped_counts(&connection, "client_ip", cutoff)?,
     }))
+}
+
+/// Prompt-cache hit accounting: `(provider, model, prompt_tokens, cached_tokens)`.
+/// `request_stats` carries the per-request token split, `channel_stats` only has
+/// success flags, so cache rates are aggregated separately and merged in.
+fn sqlite_cache_rates(
+    connection: &Connection,
+    cutoff: i64,
+    include_model: bool,
+) -> Result<Vec<(String, String, i64, i64)>, String> {
+    let sql = if include_model {
+        "SELECT provider, model, COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(cached_tokens), 0) FROM request_stats WHERE timestamp >= datetime(?1, 'unixepoch') GROUP BY provider, model"
+    } else {
+        "SELECT provider, '', COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(cached_tokens), 0) FROM request_stats WHERE timestamp >= datetime(?1, 'unixepoch') GROUP BY provider"
+    };
+    let mut statement = connection
+        .prepare(sql)
+        .map_err(|error| format!("prepare SQLite cache query: {error}"))?;
+    let rows = statement
+        .query_map([cutoff], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+            ))
+        })
+        .map_err(|error| format!("query SQLite cache stats: {error}"))?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
+/// Attaches `prompt_tokens` / `cached_tokens` / `cache_hit_rate` to success rows.
+fn merge_cache_rates(
+    rows: Vec<Value>,
+    cache: &[(String, String, i64, i64)],
+    include_model: bool,
+) -> Vec<Value> {
+    rows.into_iter()
+        .map(|mut row| {
+            let provider = row
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            let model = if include_model {
+                row.get("model")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned()
+            } else {
+                String::new()
+            };
+            let matched = cache
+                .iter()
+                .find(|(name, cached_model, _, _)| *name == provider && *cached_model == model);
+            let (prompt, cached) = matched
+                .map(|(_, _, prompt, cached)| (*prompt, *cached))
+                .unwrap_or((0, 0));
+            let rate = if prompt > 0 {
+                cached as f64 / prompt as f64
+            } else {
+                0.0
+            };
+            if let Some(object) = row.as_object_mut() {
+                object.insert("prompt_tokens".into(), json!(prompt));
+                object.insert("cached_tokens".into(), json!(cached));
+                object.insert("cache_hit_rate".into(), json!(rate));
+            }
+            row
+        })
+        .collect()
 }
 
 fn sqlite_grouped_success(
@@ -740,14 +838,43 @@ async fn postgres_stats_summary(client: &Client, hours: i64) -> Result<Value, St
             })
             .collect::<Vec<_>>()
     };
+    let cache_model = postgres_cache_rates(client, hours, true).await?;
+    let cache_channel = postgres_cache_rates(client, hours, false).await?;
     Ok(json!({
         "time_range": format!("Last {} hours", hours.max(1)),
-        "channel_model_success_rates": success_rows(channel_model, true),
-        "channel_success_rates": success_rows(channel, false),
+        "channel_model_success_rates": merge_cache_rates(success_rows(channel_model, true), &cache_model, true),
+        "channel_success_rates": merge_cache_rates(success_rows(channel, false), &cache_channel, false),
         "model_request_counts": counts(client, "model", hours.max(1)).await?,
         "endpoint_request_counts": counts(client, "endpoint", hours.max(1)).await?,
         "ip_request_counts": counts(client, "client_ip", hours.max(1)).await?,
     }))
+}
+
+async fn postgres_cache_rates(
+    client: &Client,
+    hours: i64,
+    include_model: bool,
+) -> Result<Vec<(String, String, i64, i64)>, String> {
+    let sql = if include_model {
+        "SELECT provider, model, COALESCE(SUM(prompt_tokens), 0)::bigint, COALESCE(SUM(cached_tokens), 0)::bigint FROM request_stats WHERE timestamp >= NOW() - ($1::text || ' hours')::interval GROUP BY provider, model"
+    } else {
+        "SELECT provider, ''::text, COALESCE(SUM(prompt_tokens), 0)::bigint, COALESCE(SUM(cached_tokens), 0)::bigint FROM request_stats WHERE timestamp >= NOW() - ($1::text || ' hours')::interval GROUP BY provider"
+    };
+    let rows = client
+        .query(sql, &[&hours.max(1)])
+        .await
+        .map_err(|error| format!("query PostgreSQL cache stats: {error}"))?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.get::<_, Option<String>>(0).unwrap_or_default(),
+                row.get::<_, Option<String>>(1).unwrap_or_default(),
+                row.get::<_, Option<i64>>(2).unwrap_or(0),
+                row.get::<_, Option<i64>>(3).unwrap_or(0),
+            )
+        })
+        .collect())
 }
 
 async fn postgres_token_usage(
@@ -874,6 +1001,7 @@ CREATE TABLE IF NOT EXISTS request_stats (
     prompt_tokens INTEGER DEFAULT 0,
     completion_tokens INTEGER DEFAULT 0,
     total_tokens INTEGER DEFAULT 0,
+    cached_tokens INTEGER DEFAULT 0,
     prompt_price REAL DEFAULT 0,
     completion_price REAL DEFAULT 0,
     timing_spans TEXT,
@@ -917,6 +1045,7 @@ CREATE TABLE IF NOT EXISTS request_stats (
     prompt_tokens BIGINT DEFAULT 0,
     completion_tokens BIGINT DEFAULT 0,
     total_tokens BIGINT DEFAULT 0,
+    cached_tokens BIGINT DEFAULT 0,
     prompt_price DOUBLE PRECISION DEFAULT 0,
     completion_price DOUBLE PRECISION DEFAULT 0,
     timing_spans TEXT,
@@ -955,6 +1084,33 @@ mod tests {
             persistence.stats_summary(24).await.unwrap(),
             json!({"stats": {}})
         );
+    }
+
+    #[test]
+    fn cache_rates_attach_hit_rate_to_matching_rows_only() {
+        let rows = vec![
+            json!({"provider": "alpha", "success_rate": 1.0}),
+            json!({"provider": "beta", "success_rate": 0.5}),
+            json!({"provider": "gamma", "success_rate": 0.9}),
+        ];
+        let cache = vec![
+            ("alpha".to_string(), String::new(), 1000, 800),
+            ("beta".to_string(), String::new(), 0, 0),
+        ];
+        let merged = merge_cache_rates(rows, &cache, false);
+
+        assert_eq!(merged[0]["prompt_tokens"], json!(1000));
+        assert_eq!(merged[0]["cached_tokens"], json!(800));
+        assert_eq!(merged[0]["cache_hit_rate"], json!(0.8));
+
+        // Zero prompt tokens must not divide by zero or report a fake hit rate.
+        assert_eq!(merged[1]["prompt_tokens"], json!(0));
+        assert_eq!(merged[1]["cache_hit_rate"], json!(0.0));
+
+        // A channel with no cache rows still gets explicit zeros for the UI.
+        assert_eq!(merged[2]["prompt_tokens"], json!(0));
+        assert_eq!(merged[2]["cached_tokens"], json!(0));
+        assert_eq!(merged[2]["cache_hit_rate"], json!(0.0));
     }
 
     #[tokio::test]

@@ -1673,7 +1673,8 @@ impl NativeRoute {
             "snapshot_revision": self.snapshot.revision.to_string(),
             "rust_responses_data_plane": true,
         });
-        let (prompt_tokens, completion_tokens, total_tokens) = usage_tokens(outcome);
+        let (prompt_tokens, completion_tokens, total_tokens, cached_tokens) =
+            usage_tokens(outcome);
         let (prompt_price, completion_price) =
             model_prices(&self.snapshot.preferences, &self.request_model);
         self.persistence.record_request(RequestStat {
@@ -1690,6 +1691,7 @@ impl NativeRoute {
             text: detail.chars().take(4096).collect(),
             prompt_tokens,
             completion_tokens,
+            cached_tokens,
             total_tokens,
             prompt_price,
             completion_price,
@@ -1758,7 +1760,7 @@ impl NativeRoute {
     }
 }
 
-fn usage_tokens(outcome: &Value) -> (i64, i64, i64) {
+fn usage_tokens(outcome: &Value) -> (i64, i64, i64, i64) {
     let usage = outcome.get("usage").filter(|value| value.is_object());
     let read = |names: &[&str]| {
         names
@@ -1773,10 +1775,23 @@ fn usage_tokens(outcome: &Value) -> (i64, i64, i64) {
     let prompt = read(&["input_tokens", "prompt_tokens"]);
     let completion = read(&["output_tokens", "completion_tokens"]);
     let total = read(&["total_tokens"]);
+    let cached = read(&[
+        "cached_tokens",
+        "prompt_cache_hit_tokens",
+        "cache_read_input_tokens",
+        "cachedContentTokenCount",
+    ])
+    .max(
+        usage
+            .and_then(|value| value.pointer("/input_tokens_details/cached_tokens"))
+            .and_then(Value::as_i64)
+            .unwrap_or_default(),
+    );
     (
         prompt,
         completion,
         total.max(prompt.saturating_add(completion)),
+        cached,
     )
 }
 

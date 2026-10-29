@@ -1007,6 +1007,54 @@ body {
 /* ==========================================================================
    Channel Cards (渠道卡片)
    ========================================================================== */
+.ch-cache {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  font-size: 11.5px;
+}
+.ch-cache.is-compact { margin-top: 3px; }
+.ch-cache-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  letter-spacing: .2px;
+}
+.ch-cache-bar {
+  flex: 1;
+  min-width: 42px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.ch-cache.is-compact .ch-cache-bar { height: 3px; }
+.ch-cache-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  transition: width .35s ease;
+}
+.ch-cache-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 40px;
+  text-align: right;
+}
+.ch-cache-tokens {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  font-size: 10.5px;
+}
+.ch-model-row { padding: 6px 0; }
+.ch-model-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+}
 .ch-card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
@@ -3633,6 +3681,20 @@ async function loadMonitor() {
     const ips = (hours === 720 ? stats : (stats30d || stats)).ip_request_counts || [];
     const retentionDays = Number(stats.stats_retention_days || 30);
 
+    const cacheColor = r => r >= 0.8 ? 'var(--success)' : r >= 0.4 ? 'var(--warning)' : 'var(--danger)';
+    const cacheRow = (prompt, cached, rate, compact) => {
+      if (!prompt) return '';
+      const pct = Math.max(0, Math.min(100, rate * 100));
+      const color = cacheColor(rate);
+      return `
+        <div class="ch-cache${compact ? ' is-compact' : ''}">
+          <span class="ch-cache-label">缓存命中</span>
+          <span class="ch-cache-bar"><i style="width:${pct.toFixed(1)}%;background:${color}"></i></span>
+          <span class="ch-cache-value" style="color:${color}">${pct.toFixed(1)}%</span>
+          ${compact ? '' : `<span class="ch-cache-tokens">${fmtTokens(cached)} / ${fmtTokens(prompt)}</span>`}
+        </div>`;
+    };
+
     const renderChannelCard = (c, archived) => {
       const rate = (c.success_rate * 100).toFixed(1);
       const color = c.success_rate >= 0.95 ? 'var(--success)' : c.success_rate >= 0.7 ? 'var(--warning)' : 'var(--danger)';
@@ -3650,11 +3712,15 @@ async function loadMonitor() {
               <div style="font-size:11px;color:var(--text-muted)">${c.total_requests} 次请求</div>
             </div>
           </div>
+          ${cacheRow(c.prompt_tokens, c.cached_tokens, c.cache_hit_rate || 0, false)}
           <div style="margin-top:10px;border-top:1px solid var(--border-light);padding-top:8px">
             ${models.map(m => `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12.5px">
-                <span class="mono" style="color:var(--text-secondary)">${esc(m.model)}</span>
-                <span style="color:var(--text-muted)">${m.total_requests} 次 · ${(m.success_rate * 100).toFixed(0)}% 成功</span>
+              <div class="ch-model-row">
+                <div class="ch-model-line">
+                  <span class="mono" style="color:var(--text-secondary)">${esc(m.model)}</span>
+                  <span style="color:var(--text-muted)">${m.total_requests} 次 · ${(m.success_rate * 100).toFixed(0)}% 成功</span>
+                </div>
+                ${cacheRow(m.prompt_tokens, m.cached_tokens, m.cache_hit_rate || 0, true)}
               </div>`).join('')}
           </div>
         </div>`;
@@ -5714,6 +5780,14 @@ function deleteKey(key) {
    ========================================================================== */
 function esc(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function fmtTokens(n) {
+  const v = Number(n || 0);
+  if (v >= 1e9) return (v / 1e9).toFixed(1) + 'B';
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return String(v);
 }
 
 function copyText(text) {

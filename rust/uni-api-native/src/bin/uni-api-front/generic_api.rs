@@ -489,6 +489,7 @@ pub async fn handle(state: AppState, request: Request, resource_wait: Duration) 
                     prompt_tokens: success.usage.0,
                     completion_tokens: success.usage.1,
                     total_tokens: success.usage.2,
+                    cached_tokens: success.usage.3,
                     prompt_price,
                     completion_price,
                     timing_spans: json!({
@@ -1999,8 +2000,8 @@ fn apply_alpha_search_headers(
 struct AttemptSuccess {
     response: Response<Body>,
     status: StatusCode,
-    usage: (i64, i64, i64),
-    usage_completion: Option<tokio::sync::oneshot::Receiver<(i64, i64, i64)>>,
+    usage: (i64, i64, i64, i64),
+    usage_completion: Option<tokio::sync::oneshot::Receiver<(i64, i64, i64, i64)>>,
     upstream_url: String,
 }
 
@@ -2195,15 +2196,19 @@ async fn send_attempt(
             let mut buffer: Vec<u8> = Vec::new();
             let mut prompt_tokens: i64 = 0;
             let mut completion_tokens: i64 = 0;
+            let mut cached_tokens: i64 = 0;
             while let Some(chunk) = upstream.next().await {
                 match chunk {
                     Ok(bytes) => {
                         buffer.extend_from_slice(&bytes);
                         while let Some(end) = sse_event_boundary(&buffer) {
                             let event: Vec<u8> = buffer.drain(..end).collect();
-                            if let Some((p, c)) = extract_usage_from_sse(&event) {
+                            if let Some((p, c, cached)) = extract_usage_from_sse(&event) {
                                 prompt_tokens = p;
                                 completion_tokens = c;
+                                if cached > 0 {
+                                    cached_tokens = cached;
+                                }
                             }
                             if chunk_tx.send(Ok(Bytes::from(event))).await.is_err() {
                                 return;
@@ -2219,9 +2224,12 @@ async fn send_attempt(
                 }
             }
             if !buffer.is_empty() {
-                if let Some((p, c)) = extract_usage_from_sse(&buffer) {
+                if let Some((p, c, cached)) = extract_usage_from_sse(&buffer) {
                     prompt_tokens = p;
                     completion_tokens = c;
+                    if cached > 0 {
+                        cached_tokens = cached;
+                    }
                 }
                 let _ = chunk_tx.send(Ok(Bytes::from(buffer))).await;
             }
@@ -2229,6 +2237,7 @@ async fn send_attempt(
                 prompt_tokens,
                 completion_tokens,
                 prompt_tokens.saturating_add(completion_tokens),
+                cached_tokens,
             ));
         });
         let mut output = Response::new(Body::from_stream(
@@ -2242,7 +2251,7 @@ async fn send_attempt(
         return Ok(AttemptSuccess {
             response: output,
             status,
-            usage: (0, 0, 0),
+            usage: (0, 0, 0, 0),
             usage_completion: Some(usage_rx),
             upstream_url: prepared.url,
         });
@@ -2286,7 +2295,7 @@ async fn send_attempt(
         return Ok(AttemptSuccess {
             response: translation.response,
             status,
-            usage: (0, 0, 0),
+            usage: (0, 0, 0, 0),
             usage_completion: Some(translation.usage),
             upstream_url: prepared.url,
         });
@@ -2306,7 +2315,7 @@ async fn send_attempt(
         let usage = serde_json::from_slice::<Value>(&body)
             .ok()
             .map(|value| usage(&value))
-            .unwrap_or((0, 0, 0));
+            .unwrap_or((0, 0, 0, 0));
         let mut output = Response::new(Body::from(body));
         *output.status_mut() = status;
         *output.headers_mut() = headers;
@@ -5369,7 +5378,7 @@ fn sse_event_boundary(buffer: &[u8]) -> Option<usize> {
     }
 }
 
-fn extract_usage_from_sse(event: &[u8]) -> Option<(i64, i64)> {
+fn extract_usage_from_sse(event: &[u8]) -> Option<(i64, i64, i64)> {
     let text = std::str::from_utf8(event).ok()?;
     let mut data = String::new();
     for line in text.lines() {
@@ -5395,10 +5404,22 @@ fn extract_usage_from_sse(event: &[u8]) -> Option<(i64, i64)> {
         .or_else(|| usage.get("output_tokens"))
         .and_then(Value::as_i64)
         .unwrap_or(0);
-    Some((prompt, completion))
+    let cached = [
+        usage.pointer("/prompt_tokens_details/cached_tokens"),
+        usage.pointer("/input_tokens_details/cached_tokens"),
+        usage.get("cached_tokens"),
+        usage.get("prompt_cache_hit_tokens"),
+        usage.get("cache_read_input_tokens"),
+        usage.get("cachedContentTokenCount"),
+    ]
+    .into_iter()
+    .filter_map(|value| value.and_then(Value::as_i64))
+    .find(|value| *value > 0)
+    .unwrap_or(0);
+    Some((prompt, completion, cached))
 }
 
-fn usage(value: &Value) -> (i64, i64, i64) {
+fn usage(value: &Value) -> (i64, i64, i64, i64) {
     let usage = value.get("usage").unwrap_or(&Value::Null);
     let prompt = usage
         .get("prompt_tokens")
@@ -5414,7 +5435,20 @@ fn usage(value: &Value) -> (i64, i64, i64) {
         .get("total_tokens")
         .and_then(Value::as_i64)
         .unwrap_or(prompt.saturating_add(completion));
-    (prompt, completion, total)
+    // Prompt-cache hits differ per upstream dialect; take the first that reports one.
+    let cached = [
+        usage.pointer("/prompt_tokens_details/cached_tokens"),
+        usage.pointer("/input_tokens_details/cached_tokens"),
+        usage.get("cached_tokens"),
+        usage.get("prompt_cache_hit_tokens"),
+        usage.get("cache_read_input_tokens"),
+        usage.get("cachedContentTokenCount"),
+    ]
+    .into_iter()
+    .filter_map(|value| value.and_then(Value::as_i64))
+    .find(|value| *value > 0)
+    .unwrap_or(0);
+    (prompt, completion, total, cached)
 }
 
 fn query_value(uri: &Uri, name: &str) -> Option<String> {

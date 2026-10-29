@@ -35,7 +35,7 @@ pub enum OutputProtocol {
 
 pub struct Translation {
     pub response: Response<Body>,
-    pub usage: oneshot::Receiver<(i64, i64, i64)>,
+    pub usage: oneshot::Receiver<(i64, i64, i64, i64)>,
 }
 
 #[derive(Clone, Copy)]
@@ -100,7 +100,7 @@ pub fn translate(
                     }),
                 };
                 let _ = send_wire(&tx, &payload, output_protocol).await;
-                (0, 0, 0)
+                (0, 0, 0, 0)
             }
         };
         if output_protocol == OutputProtocol::Chat {
@@ -132,7 +132,7 @@ async fn run_translation(
     content_type: &str,
     tx: &mpsc::Sender<Result<Bytes, io::Error>>,
     options: TranslationOptions,
-) -> Result<(i64, i64, i64), String> {
+) -> Result<(i64, i64, i64, i64), String> {
     let mut state = StreamState::new_with_options(model, output_protocol, options.include_usage);
     let timeouts = options.timeouts;
     for event in state.start_chunks() {
@@ -469,6 +469,10 @@ impl StreamState {
         if let Some(usage) = value.get("usage") {
             self.prompt_tokens = number(usage.get("prompt_tokens"));
             self.completion_tokens = number(usage.get("completion_tokens"));
+            let cached = cached_from_usage(usage);
+            if cached > 0 {
+                self.cached_tokens = cached;
+            }
         }
         if value
             .pointer("/choices/0/finish_reason")
@@ -872,11 +876,12 @@ impl StreamState {
         self.encode_chunks(chunks)
     }
 
-    fn usage(&self) -> (i64, i64, i64) {
+    fn usage(&self) -> (i64, i64, i64, i64) {
         (
             self.prompt_tokens,
             self.completion_tokens,
             self.prompt_tokens + self.completion_tokens,
+            self.cached_tokens,
         )
     }
 
@@ -1353,6 +1358,25 @@ fn number(value: Option<&Value>) -> i64 {
                 .as_i64()
                 .or_else(|| value.as_u64().map(|value| value as i64))
         })
+        .unwrap_or(0)
+}
+
+/// Prompt-cache hits, as reported by the various upstream dialects:
+/// OpenAI `prompt_tokens_details.cached_tokens`, DeepSeek `prompt_cache_hit_tokens`,
+/// Anthropic `cache_read_input_tokens`, Gemini `cachedContentTokenCount`.
+fn cached_from_usage(usage: &Value) -> i64 {
+    let candidates = [
+        usage.pointer("/prompt_tokens_details/cached_tokens"),
+        usage.pointer("/input_tokens_details/cached_tokens"),
+        usage.get("cached_tokens"),
+        usage.get("prompt_cache_hit_tokens"),
+        usage.get("cache_read_input_tokens"),
+        usage.get("cachedContentTokenCount"),
+    ];
+    candidates
+        .into_iter()
+        .map(|value| number(value))
+        .find(|value| *value > 0)
         .unwrap_or(0)
 }
 
