@@ -117,6 +117,9 @@ pub fn supports_mutation(method: &Method, path: &str) -> bool {
                 | "/v1/oauth/antigravity/exchange"
                 | "/v1/oauth/antigravity/import"
                 | "/v1/oauth/antigravity/quota"
+                | "/v1/oauth/codex/start"
+                | "/v1/oauth/codex/exchange"
+                | "/v1/oauth/codex/import"
         )
 }
 
@@ -525,6 +528,61 @@ pub async fn handle_mutation(state: &AppState, request: Request) -> Response<Bod
             .await
             {
                 Ok(report) => json_response(StatusCode::OK, quota_report_json(&report)),
+                Err(error) => json_error(StatusCode::BAD_GATEWAY, &error),
+            }
+        }
+        "/v1/oauth/codex/start" => {
+            let (auth_url, state_val) = state.codex_oauth.start_oauth().await;
+            json_response(StatusCode::OK, json!({ "auth_url": auth_url, "state": state_val }))
+        }
+        "/v1/oauth/codex/exchange" => {
+            let params = match read_json_object(request, 1024 * 1024).await {
+                Ok(params) => params,
+                Err(response) => return response,
+            };
+            let proxy = params.get("proxy").and_then(Value::as_str);
+            let state_val = params.get("state").and_then(Value::as_str);
+            let callback_url = params.get("callback_url").and_then(Value::as_str);
+            let raw_code = params.get("code").and_then(Value::as_str);
+
+            let (code, parsed_state) = if let Some(url_str) = callback_url {
+                let parsed = url::Url::parse(url_str).ok();
+                let c = parsed.as_ref().and_then(|u| {
+                    u.query_pairs().find(|(k, _)| k == "code").map(|(_, v)| v.into_owned())
+                });
+                let s = parsed.as_ref().and_then(|u| {
+                    u.query_pairs().find(|(k, _)| k == "state").map(|(_, v)| v.into_owned())
+                });
+                (c.or_else(|| raw_code.map(str::to_owned)), s.or_else(|| state_val.map(str::to_owned)))
+            } else {
+                (raw_code.map(str::to_owned), state_val.map(str::to_owned))
+            };
+
+            let Some(code) = code.filter(|c| !c.trim().is_empty()) else {
+                return json_error(StatusCode::BAD_REQUEST, "缺少授权 code 或回调 URL 中未包含 code");
+            };
+
+            match state.codex_oauth.exchange_code(&code, parsed_state.as_deref(), proxy).await {
+                Ok(bundle) => json_response(StatusCode::OK, json!(bundle)),
+                Err(error) => json_error(StatusCode::BAD_GATEWAY, &error),
+            }
+        }
+        "/v1/oauth/codex/import" => {
+            let params = match read_json_object(request, 1024 * 1024).await {
+                Ok(params) => params,
+                Err(response) => return response,
+            };
+            let refresh_token = params
+                .get("refresh_token")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default();
+            if refresh_token.is_empty() {
+                return json_error(StatusCode::BAD_REQUEST, "refresh_token is required");
+            }
+            let proxy = params.get("proxy").and_then(Value::as_str);
+            match state.codex_oauth.import_refresh_token(refresh_token, proxy).await {
+                Ok(bundle) => json_response(StatusCode::OK, json!(bundle)),
                 Err(error) => json_error(StatusCode::BAD_GATEWAY, &error),
             }
         }

@@ -2513,6 +2513,70 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   transition: transform .2s ease;
 }
 
+/* ===== Channel Category Sections ===== */
+.ch-category-section {
+  margin-bottom: 22px;
+}
+.ch-category-section:last-child {
+  margin-bottom: 12px;
+}
+.ch-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 2px 9px;
+}
+.ch-category-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.ch-category-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-xs);
+  flex-shrink: 0;
+}
+.ch-category-icon.ch-cat-openai {
+  color: #10a37f;
+  background: rgba(16, 163, 127, 0.1);
+}
+.ch-category-icon.ch-cat-antigravity {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+.ch-category-icon.ch-cat-codex {
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+}
+.badge-emerald {
+  color: #059669;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.badge-blue {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+}
+[data-theme="dark"] .badge-emerald {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.15);
+  border-color: rgba(52, 211, 153, 0.3);
+}
+[data-theme="dark"] .badge-blue {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.15);
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
 /* ===== Channel type picker ===== */
 .ch-type-list { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
 .ch-type-item {
@@ -2758,6 +2822,16 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
         </span>
         <span class="ch-type-arrow">›</span>
       </button>
+      <button class="ch-type-item" onclick="pickChannelType('codex')">
+        <span class="ch-type-icon" style="color:#8b5cf6">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/></svg>
+        </span>
+        <span style="min-width:0">
+          <span class="ch-type-name">Codex</span>
+          <span class="ch-type-desc">ChatGPT / Codex OAuth 登录，官方认证</span>
+        </span>
+        <span class="ch-type-arrow">›</span>
+      </button>
     </div>
   </div>
 </div>
@@ -2840,6 +2914,57 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
         <div class="oauth-footer">
           <span class="oauth-status" id="chOauthStatus"><span class="oauth-dot"></span>等待认证…</span>
           <button class="oauth-link-btn" onclick="importAntigravityRefreshToken()">直接粘贴 refresh_token</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Codex OAuth Panel (1:1 Replica from CPA) -->
+    <div class="form-group" id="chCodexOauthPanel" style="display:none">
+      <div class="oauth-card">
+        <div class="oauth-card-head">
+          <div class="oauth-card-icon" style="background:rgba(139,92,246,0.12);color:#8b5cf6">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/></svg>
+          </div>
+          <div style="min-width:0">
+            <div class="oauth-card-title">Codex OAuth</div>
+            <div class="oauth-card-sub">浏览器授权 · OpenAI 账号</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5">
+          通过 OAuth 流程登录 Codex 服务，自动获取并保存认证文件。
+        </div>
+
+        <div class="oauth-step">
+          <span class="oauth-step-index">1</span>
+          <div class="oauth-step-body">
+            <div class="oauth-step-title">打开授权页并完成登录</div>
+            <div class="oauth-url-row">
+              <span class="oauth-url mono" id="chCodexOauthUrlText">正在生成授权链接…</span>
+              <button class="oauth-icon-btn" onclick="copyCodexOauthUrl()" title="复制授权链接">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+            <a id="chCodexOauthOpenLink" class="btn btn-dark btn-sm oauth-open-btn" href="#" target="_blank" rel="noopener" onclick="handleCodexOauthOpen(event)">
+              打开链接
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="margin-left:5px"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+            <div class="oauth-hint" style="margin:7px 0 0">若未自动跳转，可长按按钮选择「在新标签页打开」，或点上方复制按钮手动打开。</div>
+          </div>
+        </div>
+
+        <div class="oauth-step">
+          <span class="oauth-step-index">2</span>
+          <div class="oauth-step-body">
+            <div class="oauth-step-title">回调 URL <span class="oauth-optional">可选</span></div>
+            <div class="oauth-hint">远程浏览器模式：当授权跳转到 <span class="mono">http://localhost:1455/auth/callback</span> 后，复制完整 URL 并提交到这里。</div>
+            <input class="modal-input mono oauth-callback-input" id="chCodexOauthCallback" placeholder="http://localhost:1455/auth/callback?code=...">
+            <button class="btn btn-outline btn-sm oauth-submit-btn" onclick="exchangeCodexCode()">提交回调 URL</button>
+          </div>
+        </div>
+
+        <div class="oauth-footer">
+          <span class="oauth-status" id="chCodexOauthStatus"><span class="oauth-dot"></span>等待认证中…</span>
+          <button class="oauth-link-btn" onclick="importCodexRefreshToken()">直接粘贴 refresh_token</button>
         </div>
       </div>
     </div>
@@ -3022,6 +3147,7 @@ let chAliasMap = {}; // { [upstream_model]: custom_alias }
 let chSelectionInitialized = false; // 是否已有明确的模型选择意图
 let chCustomHeaders = {}; // 当前渠道的固定上游请求头
 let chOauthState = { refresh_token: '', project_id: '', email: '' }; // Antigravity OAuth 凭据
+let chCodexOauthState = { refresh_token: '', account_id: '', email: '', plan: '', auth_url: '', state: '' }; // Codex OAuth 凭据
 let chOauthAccounts = []; // 渠道内的全部 Antigravity 账号
 let chOauthAwaiting = false; // 是否正在等待一次新的授权回调
 
@@ -3830,69 +3956,134 @@ function toggleKeyUsageModels(btn) {
 }
 
 /* ==========================================================================
-   PAGE 4: CHANNELS & VISUAL EDITOR
+   PAGE 4: CHANNELS & VISUAL EDITOR (三大分类与动态展示)
    ========================================================================== */
+const CHANNEL_CATEGORIES = [
+  {
+    key: 'openai',
+    name: 'OpenAI 通用协议',
+    badgeClass: 'badge-emerald',
+    icon: `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M21.3 9.8a5.6 5.6 0 0 0-.5-4.6 5.7 5.7 0 0 0-6.1-2.7A5.6 5.6 0 0 0 10.4 1a5.7 5.7 0 0 0-5.4 3.9 5.6 5.6 0 0 0-3.7 2.7 5.7 5.7 0 0 0 .7 6.6 5.6 5.6 0 0 0 .5 4.6 5.7 5.7 0 0 0 6.1 2.7 5.6 5.6 0 0 0 4.3 1.5 5.7 5.7 0 0 0 5.4-3.9 5.6 5.6 0 0 0 3.7-2.7 5.7 5.7 0 0 0-.7-6.6Zm-9.1 12.5a4.2 4.2 0 0 1-2.7-1l.1-.1 4.5-2.6a.7.7 0 0 0 .4-.6v-6.4l1.9 1.1v5.3a4.3 4.3 0 0 1-4.2 4.3Zm-9.1-3.9a4.2 4.2 0 0 1-.5-2.8l.1.1 4.5 2.6a.7.7 0 0 0 .7 0l5.5-3.2v2.2l-4.6 2.7a4.3 4.3 0 0 1-5.7-1.6Zm-1.2-9.9a4.2 4.2 0 0 1 2.2-1.8v5.4a.7.7 0 0 0 .3.6l5.5 3.2-1.9 1.1-4.6-2.6a4.3 4.3 0 0 1-1.5-5.9Zm15.8 3.7-5.5-3.2 1.9-1.1 4.6 2.7a4.2 4.2 0 0 1-.6 7.6v-5.4a.7.7 0 0 0-.4-.6Zm1.9-2.9-.1-.1-4.5-2.6a.7.7 0 0 0-.7 0L9 10.8V8.6l4.6-2.7a4.3 4.3 0 0 1 6.2 4.4ZM8 12.9l-1.9-1.1V6.5a4.3 4.3 0 0 1 7-3.3l-.1.1-4.5 2.6a.7.7 0 0 0-.4.6v6.4Zm1-2.2 2.5-1.4 2.5 1.4v2.9L11.5 14l-2.5-1.4v-2.9Z"/></svg>`
+  },
+  {
+    key: 'antigravity',
+    name: 'Antigravity',
+    badgeClass: 'badge-blue',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M2 20h20"/><path d="M5 20l6-14 4.5 10"/><path d="M12.5 16h5"/></svg>`
+  },
+  {
+    key: 'codex',
+    name: 'Codex',
+    badgeClass: 'badge-purple',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/></svg>`
+  }
+];
+
+function getProviderCategory(p) {
+  const engine = (p.engine || '').toLowerCase();
+  const oauth = p.preferences?.oauth || {};
+  const hasAntigravityAccounts = Array.isArray(p.preferences?.oauth_accounts) && p.preferences.oauth_accounts.length > 0;
+  if (engine === 'codex' || Boolean(oauth.account_id) || Boolean(oauth.chatgpt_account_id)) {
+    return 'codex';
+  }
+  if (engine === 'antigravity' || Boolean(oauth.project_id) || hasAntigravityAccounts || (oauth.refresh_token && !oauth.account_id)) {
+    return 'antigravity';
+  }
+  return 'openai';
+}
+
+function renderSingleChannelCard(p, i) {
+  const models = p.models || p.model || [];
+  const cacheEnabled = p.preferences?.prompt_cache_affinity === true;
+  const isAntigravity = (p.engine || '').toLowerCase() === 'antigravity'
+    || Boolean(p.preferences?.oauth?.project_id)
+    || (Array.isArray(p.preferences?.oauth_accounts) && p.preferences.oauth_accounts.length > 0);
+  const isCodex = (p.engine || '').toLowerCase() === 'codex' || Boolean(p.preferences?.oauth?.account_id);
+  const cacheRetention = p.preferences?.prompt_cache_retention || '';
+  const hasModels = models.length > 0;
+  const modelsMarkup = !hasModels ? `
+    <div class="ch-empty-models">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span>未配置可用模型，点击右上角「编辑配置」添加或拉取</span>
+    </div>` : `
+    <div class="ch-models-header" onclick="toggleChModels(${i}, ${models.length})">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span>支持模型</span>
+        <span class="badge badge-purple">${models.length}</span>
+      </div>
+      <span class="ch-models-toggle" id="ch-toggle-${i}">
+        <span>展开全部 (${models.length})</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="ch-models-chevron"><polyline points="6 9 12 15 18 9"/></svg>
+      </span>
+    </div>
+    <div class="tags" id="ch-tags-${i}" style="display:none;margin-top:9px">
+      ${models.map(renderModelTag).join('')}
+    </div>`;
+
+  return `
+    <div class="ch-card">
+      <div class="ch-top">
+        <div class="ch-name-row">
+          <span class="key-dot"></span>
+          <span class="ch-name" title="${esc(p.provider || '')}">${esc(p.provider || 'Provider ' + (i + 1))}</span>
+          ${p.preferences?.proxy ? `<span class="ch-badge" title="代理出口：${esc(p.preferences.proxy)}">代理</span>` : ''}
+          ${isCodex ? `<span class="ch-badge" style="background:rgba(139,92,246,0.1);color:#8b5cf6;border-color:rgba(139,92,246,0.25)">Codex</span>` : ''}
+          ${cacheEnabled ? `<span class="ch-badge green" title="Prompt Cache 亲和已开启 (${esc(cacheRetention || '默认')})">缓存${cacheRetention ? ` · ${esc(cacheRetention)}` : ''}</span>` : ''}
+        </div>
+        <div class="ch-actions">
+          <div class="ch-toggle" onclick="toggleChBody(this)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>
+            <span>展开</span>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="openChannelEditor(${i})">编辑配置</button>
+          <button class="btn btn-sm btn-danger" onclick="removeProvider(${i})" title="删除渠道">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="ch-body">
+        ${isAntigravity ? `<div class="quota-box" id="quota-${i}"></div>` : ''}
+        ${modelsMarkup}
+      </div>
+    </div>`;
+}
+
 async function loadChannels() {
   try {
     const resp = await api('/v1/api_config');
     configData = resp.api_config || resp;
     const providers = configData.providers || [];
-    let html = '';
+
+    const grouped = { openai: [], antigravity: [], codex: [] };
     providers.forEach((p, i) => {
-      const models = p.models || p.model || [];
-      const cacheEnabled = p.preferences?.prompt_cache_affinity === true;
-      const isAntigravity = (p.engine || '').toLowerCase() === 'antigravity'
-        || Boolean(p.preferences?.oauth?.refresh_token);
-      const cacheRetention = p.preferences?.prompt_cache_retention || '';
-      const maskedKey = p.api ? p.api.slice(0, 8) + '...' + p.api.slice(-4) : '(无密钥/留空)';
-      const hasModels = models.length > 0;
-      const modelsMarkup = !hasModels ? `
-        <div class="ch-empty-models">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
-          <span>未配置可用模型，点击右上角「编辑配置」添加或拉取</span>
-        </div>` : `
-        <div class="ch-models-header" onclick="toggleChModels(${i}, ${models.length})">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span>支持模型</span>
-            <span class="badge badge-purple">${models.length}</span>
-          </div>
-          <span class="ch-models-toggle" id="ch-toggle-${i}">
-            <span>展开全部 (${models.length})</span>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="ch-models-chevron"><polyline points="6 9 12 15 18 9"/></svg>
-          </span>
-        </div>
-        <div class="tags" id="ch-tags-${i}" style="display:none;margin-top:9px">
-          ${models.map(renderModelTag).join('')}
-        </div>`;
+      const cat = getProviderCategory(p);
+      grouped[cat].push({ provider: p, index: i });
+    });
 
+    let html = '';
+    CHANNEL_CATEGORIES.forEach(cat => {
+      const list = grouped[cat.key];
+      if (!list || list.length === 0) {
+        // 分类类别添加渠道才出现，没有添加不出现！
+        return;
+      }
       html += `
-        <div class="ch-card">
-          <div class="ch-top">
-            <div class="ch-name-row">
-              <span class="key-dot"></span>
-              <span class="ch-name" title="${esc(p.provider || '')}">${esc(p.provider || 'Provider ' + (i + 1))}</span>
-              ${p.preferences?.proxy ? `<span class="ch-badge" title="代理出口：${esc(p.preferences.proxy)}">代理</span>` : ''}
-              ${cacheEnabled ? `<span class="ch-badge green" title="Prompt Cache 亲和已开启 (${esc(cacheRetention || '默认')})">缓存${cacheRetention ? ` · ${esc(cacheRetention)}` : ''}</span>` : ''}
-            </div>
-            <div class="ch-actions">
-              <div class="ch-toggle" onclick="toggleChBody(this)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>
-                <span>展开</span>
-              </div>
-              <button class="btn btn-outline btn-sm" onclick="openChannelEditor(${i})">编辑配置</button>
-              <button class="btn btn-sm btn-danger" onclick="removeProvider(${i})" title="删除渠道">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
+        <div class="ch-category-section" id="cat-section-${cat.key}">
+          <div class="ch-category-header">
+            <div class="ch-category-title">
+              <span class="ch-category-icon ch-cat-${cat.key}">${cat.icon}</span>
+              <span>${cat.name}</span>
+              <span class="badge ${cat.badgeClass}">${list.length}</span>
             </div>
           </div>
-
-          <div class="ch-body">
-            ${isAntigravity ? `<div class="quota-box" id="quota-${i}"></div>` : ''}
-            ${modelsMarkup}
+          <div class="ch-category-list">
+            ${list.map(item => renderSingleChannelCard(item.provider, item.index)).join('')}
           </div>
         </div>`;
     });
-    $('#channelsContent').innerHTML = html || renderEmptyState('暂无渠道配置', '点击上方「添加渠道」接入 OpenAI、Antigravity 等上游服务', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>');
+
+    $('#channelsContent').innerHTML = html || renderEmptyState('暂无渠道配置', '点击上方「添加渠道」接入 OpenAI、Antigravity、Codex 等上游服务', '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>');
     Object.keys(QUOTA_CACHE).forEach(key => renderQuota(Number(key)));
     providers.forEach((p, i) => {
       const hasQuota = document.getElementById('quota-' + i);
@@ -4188,7 +4379,7 @@ function openChannelEditor(i, presetType) {
   const isNew = i === -1;
   const preset = presetType || (isNew ? 'openai' : '');
   $('#chModalTitle').textContent = isNew
-    ? (preset === 'antigravity' ? '添加 Antigravity 渠道' : '添加 OpenAI 渠道')
+    ? (preset === 'antigravity' ? '添加 Antigravity 渠道' : preset === 'codex' ? '添加 Codex 渠道' : '添加 OpenAI 渠道')
     : '编辑渠道配置';
   $('#chModal').dataset.index = i;
   $('#chSearchModel').value = '';
@@ -4198,16 +4389,20 @@ function openChannelEditor(i, presetType) {
   chOauthState = { refresh_token: '', project_id: '', email: '', auth_url: '' };
   chOauthAccounts = [];
   chOauthAwaiting = false;
+  chCodexOauthState = { refresh_token: '', account_id: '', email: '', plan: '', auth_url: '', state: '' };
   $('#chHeaders').value = '';
-  $('#chAuthMode').value = preset === 'antigravity' ? 'antigravity_oauth' : 'apikey';
+  $('#chAuthMode').value = preset === 'antigravity' ? 'antigravity_oauth' : preset === 'codex' ? 'codex_oauth' : 'apikey';
   $('#chOauthCallback').value = '';
+  $('#chCodexOauthCallback').value = '';
   applyOauthUrl('');
+  applyCodexOauthUrl('');
   renderOauthStatus();
+  renderCodexOauthStatus();
   setPromptCacheAffinity({});
 
   if (isNew) {
-    $('#chName').value = preset === 'antigravity' ? 'Antigravity' : '';
-    $('#chUrl').value = preset === 'antigravity' ? 'https://daily-cloudcode-pa.googleapis.com' : '';
+    $('#chName').value = preset === 'antigravity' ? 'Antigravity' : preset === 'codex' ? 'Codex' : '';
+    $('#chUrl').value = preset === 'antigravity' ? 'https://daily-cloudcode-pa.googleapis.com' : preset === 'codex' ? 'https://chatgpt.com/backend-api' : '';
     $('#chKey').value = '';
     $('#chProxy').value = '';
     $('#chModelsManual').value = '';
@@ -4217,6 +4412,8 @@ function openChannelEditor(i, presetType) {
     $('#chFetchStatus').textContent = '填入 Base URL 后点「拉取」';
     if (preset === 'antigravity') {
       fillAntigravityModels(true);
+    } else if (preset === 'codex') {
+      fillCodexModels(true);
     }
   } else {
     const p = configData.providers[i];
@@ -4225,9 +4422,33 @@ function openChannelEditor(i, presetType) {
     $('#chKey').value = p.api || '';
     $('#chProxy').value = p.preferences?.proxy || '';
     const oauth = p.preferences?.oauth;
-    const isOauthChannel = (p.engine || '').toLowerCase() === 'antigravity'
-      || (oauth && typeof oauth === 'object' && oauth.refresh_token);
-    if (isOauthChannel) {
+    const engine = (p.engine || '').toLowerCase();
+    const isCodexChannel = engine === 'codex' || Boolean(oauth?.account_id) || Boolean(oauth?.chatgpt_account_id);
+    const isAntigravityChannel = !isCodexChannel && (engine === 'antigravity'
+      || (oauth && typeof oauth === 'object' && oauth.refresh_token)
+      || (Array.isArray(p.preferences?.oauth_accounts) && p.preferences.oauth_accounts.length > 0));
+
+    if (isCodexChannel) {
+      $('#chAuthMode').value = 'codex_oauth';
+      let acctId = oauth?.account_id || oauth?.chatgpt_account_id || '';
+      let rfToken = oauth?.refresh_token || '';
+      if (!rfToken && p.api && p.api.includes(',')) {
+        const parts = p.api.split(',');
+        acctId = parts[0].trim();
+        rfToken = parts[1].trim();
+      } else if (!rfToken && p.api) {
+        rfToken = p.api.trim();
+      }
+      chCodexOauthState = {
+        refresh_token: rfToken,
+        account_id: acctId,
+        email: oauth?.email || '',
+        plan: oauth?.plan || '',
+        auth_url: '',
+        state: ''
+      };
+      renderCodexOauthStatus();
+    } else if (isAntigravityChannel) {
       const listed = Array.isArray(p.preferences?.oauth_accounts)
         ? p.preferences.oauth_accounts.filter(a => a && a.refresh_token)
         : [];
@@ -4239,7 +4460,10 @@ function openChannelEditor(i, presetType) {
       chOauthState = { refresh_token: '', project_id: '', email: '', auth_url: '' };
       $('#chAuthMode').value = 'antigravity_oauth';
       renderOauthStatus();
+    } else {
+      $('#chAuthMode').value = 'apikey';
     }
+
     setChannelCustomHeaders(p.preferences?.headers || p.headers || {});
     setPromptCacheAffinity(p.preferences || {});
     const rawList = p.models || p.model || [];
@@ -4272,22 +4496,38 @@ function adminBearer() {
 }
 
 function syncAuthModeUI() {
-  const isOauth = $('#chAuthMode').value === 'antigravity_oauth';
-  $('#chApiKeyGroup').style.display = isOauth ? 'none' : '';
-  $('#chOauthPanel').style.display = isOauth ? '' : 'none';
-  // Antigravity channels derive these from the OAuth profile, so hide the
-  // fields that would only add noise.
+  const mode = $('#chAuthMode').value;
+  const isAntigravity = mode === 'antigravity_oauth';
+  const isCodex = mode === 'codex_oauth';
+  const isAnyOauth = isAntigravity || isCodex;
+
+  $('#chApiKeyGroup').style.display = isAnyOauth ? 'none' : '';
+  $('#chOauthPanel').style.display = isAntigravity ? '' : 'none';
+  $('#chCodexOauthPanel').style.display = isCodex ? '' : 'none';
+
   ['chUrlGroup', 'chAuthGroup', 'chHeadersGroup'].forEach(id => {
     const el = $('#' + id);
-    if (el) el.style.display = isOauth ? 'none' : '';
+    if (el) el.style.display = isAnyOauth ? 'none' : '';
   });
-  if (isOauth && !$('#chUrl').value.trim()) {
-    $('#chUrl').value = 'https://daily-cloudcode-pa.googleapis.com';
-  }
-  renderOauthStatus();
-  if (isOauth && !chOauthAccounts.length && !chOauthState.refresh_token) {
-    applyOauthUrl(chOauthState.auth_url || '');
-    prepareOauthUrl(false);
+
+  if (isAntigravity) {
+    if (!$('#chUrl').value.trim() || $('#chUrl').value.includes('chatgpt.com')) {
+      $('#chUrl').value = 'https://daily-cloudcode-pa.googleapis.com';
+    }
+    renderOauthStatus();
+    if (!chOauthAccounts.length && !chOauthState.refresh_token) {
+      applyOauthUrl(chOauthState.auth_url || '');
+      prepareOauthUrl(false);
+    }
+  } else if (isCodex) {
+    if (!$('#chUrl').value.trim() || $('#chUrl').value.includes('googleapis.com')) {
+      $('#chUrl').value = 'https://chatgpt.com/backend-api';
+    }
+    renderCodexOauthStatus();
+    if (!chCodexOauthState.refresh_token) {
+      applyCodexOauthUrl(chCodexOauthState.auth_url || '');
+      prepareCodexOauthUrl(false);
+    }
   }
 }
 
@@ -4487,6 +4727,142 @@ function fillAntigravityModels(silent) {
   renderChChips();
   updateManualTextarea();
   if (!silent) showToast(`已填入 ${defaults.length} 个推荐模型`);
+}
+
+/* ==========================================================================
+   Codex（ChatGPT OAuth）渠道支持
+   ========================================================================== */
+let codexOauthUrlPending = null;
+
+async function prepareCodexOauthUrl(force) {
+  if (!force && chCodexOauthState.auth_url) return chCodexOauthState.auth_url;
+  if (codexOauthUrlPending) return codexOauthUrlPending;
+  $('#chCodexOauthUrlText').textContent = '正在生成授权链接…';
+  codexOauthUrlPending = (async () => {
+    try {
+      const data = await oauthAdminPost('/v1/oauth/codex/start', { proxy: $('#chProxy')?.value.trim() || '' });
+      chCodexOauthState.auth_url = data.auth_url || '';
+      chCodexOauthState.state = data.state || '';
+      applyCodexOauthUrl(data.auth_url || '');
+      return data.auth_url || '';
+    } catch (e) {
+      $('#chCodexOauthUrlText').textContent = '生成失败，点击重试';
+      showToast('生成授权链接失败: ' + e.message);
+      return '';
+    } finally {
+      codexOauthUrlPending = null;
+    }
+  })();
+  return codexOauthUrlPending;
+}
+
+function applyCodexOauthUrl(url) {
+  const textEl = $('#chCodexOauthUrlText');
+  const linkEl = $('#chCodexOauthOpenLink');
+  if (textEl) textEl.textContent = url ? shortUrl(url) : '正在生成授权链接…';
+  if (textEl) textEl.title = url || '';
+  if (linkEl) {
+    linkEl.href = url || '#';
+  }
+}
+
+async function handleCodexOauthOpen(event) {
+  if (chCodexOauthState.auth_url) return;
+  event.preventDefault();
+  const url = await prepareCodexOauthUrl(true);
+  if (url) showToast('链接已生成，请再点一次「打开链接」');
+}
+
+function copyCodexOauthUrl() {
+  if (!chCodexOauthState.auth_url) return showToast('请先点击「打开链接」生成授权地址');
+  copyText(chCodexOauthState.auth_url);
+}
+
+async function exchangeCodexCode() {
+  const raw = $('#chCodexOauthCallback').value.trim();
+  if (!raw) return showToast('请粘贴授权后跳转的完整回调 URL');
+  const el = $('#chCodexOauthStatus');
+  if (el) {
+    el.innerHTML = `<span class="oauth-dot"></span>正在换取令牌…`;
+  }
+  try {
+    const data = await oauthAdminPost('/v1/oauth/codex/exchange', {
+      callback_url: raw,
+      state: chCodexOauthState.state || '',
+      proxy: $('#chProxy')?.value.trim() || ''
+    });
+    setCodexAuthSuccess(data);
+    $('#chCodexOauthCallback').value = '';
+    showToast(`Codex 授权成功${data.email ? ' (' + data.email + ')' : ''}`);
+  } catch (e) {
+    renderCodexOauthStatus();
+    showToast('授权失败: ' + e.message);
+  }
+}
+
+async function importCodexRefreshToken() {
+  const token = prompt('粘贴 Codex / ChatGPT 的 refresh_token：');
+  if (!token || !token.trim()) return;
+  try {
+    const data = await oauthAdminPost('/v1/oauth/codex/import', {
+      refresh_token: token.trim(),
+      proxy: $('#chProxy')?.value.trim() || ''
+    });
+    setCodexAuthSuccess(data);
+    showToast(`refresh_token 已导入${data.email ? ' (' + data.email + ')' : ''}`);
+  } catch (e) {
+    showToast('导入失败: ' + e.message);
+  }
+}
+
+function setCodexAuthSuccess(data) {
+  chCodexOauthState = {
+    refresh_token: data.refresh_token || '',
+    account_id: data.account_id || '',
+    email: data.email || '',
+    plan: data.plan || '',
+    auth_url: chCodexOauthState.auth_url,
+    state: chCodexOauthState.state
+  };
+  const curName = ($('#chName').value || '').trim();
+  if (!curName || curName === 'Codex') {
+    $('#chName').value = data.email || 'Codex';
+  }
+  if (!$('#chUrl').value.trim() || $('#chUrl').value.includes('googleapis.com')) {
+    $('#chUrl').value = 'https://chatgpt.com/backend-api';
+  }
+  $('#chKey').value = data.account_id ? `${data.account_id},${data.refresh_token}` : data.refresh_token;
+  if (!chSelectedSet.size) {
+    fillCodexModels(true);
+  }
+  renderCodexOauthStatus();
+}
+
+function renderCodexOauthStatus() {
+  const el = $('#chCodexOauthStatus');
+  if (!el) return;
+  if (chCodexOauthState.refresh_token) {
+    el.classList.add('ok');
+    const display = chCodexOauthState.email || chCodexOauthState.account_id || '已就绪';
+    const plan = chCodexOauthState.plan ? ` · ${chCodexOauthState.plan.toUpperCase()}` : '';
+    el.innerHTML = `<span class="oauth-dot"></span>已认证：${esc(display)}${esc(plan)}`;
+  } else {
+    el.classList.remove('ok');
+    el.innerHTML = `<span class="oauth-dot"></span>等待认证中…`;
+  }
+}
+
+function fillCodexModels(silent) {
+  const defaults = [
+    'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna',
+    'gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5'
+  ];
+  chAllModels = [...new Set([...chAllModels, ...defaults])].sort();
+  defaults.forEach(m => chSelectedSet.add(m));
+  chSelectionInitialized = true;
+  renderChChips();
+  updateManualTextarea();
+  if (!silent) showToast(`已填入 ${defaults.length} 个推荐 Codex 模型`);
 }
 
 function closeChModal() {
@@ -4725,12 +5101,13 @@ async function fetchProviderModels() {
 function saveChannel() {
   const name = $('#chName').value.trim();
   const authMode = $('#chAuthMode').value;
-  const isOauth = authMode === 'antigravity_oauth';
+  const isAntigravity = authMode === 'antigravity_oauth';
+  const isCodex = authMode === 'codex_oauth';
   let url = $('#chUrl').value.trim();
   let key = $('#chKey').value.trim();
   updateChannelCustomHeaders();
 
-  if (isOauth) {
+  if (isAntigravity) {
     if (!chOauthAccounts.length && !chOauthState.refresh_token) {
       return showToast('请先完成 Google 登录或导入 refresh_token');
     }
@@ -4743,6 +5120,16 @@ function saveChannel() {
     }
     if (!url) url = 'https://daily-cloudcode-pa.googleapis.com';
     key = 'oauth';
+  } else if (isCodex) {
+    if (!chCodexOauthState.refresh_token && !key.trim()) {
+      return showToast('请先完成 Codex 登录或导入 refresh_token');
+    }
+    if (!url) url = 'https://chatgpt.com/backend-api';
+    if (chCodexOauthState.refresh_token) {
+      key = chCodexOauthState.account_id
+        ? `${chCodexOauthState.account_id},${chCodexOauthState.refresh_token}`
+        : chCodexOauthState.refresh_token;
+    }
   }
 
   const models = [...chSelectedSet].map(m => {
@@ -4765,7 +5152,7 @@ function saveChannel() {
   } else {
     delete preferences.proxy;
   }
-  if (isOauth) {
+  if (isAntigravity) {
     if (!chOauthAccounts.length) {
       return showToast('请先添加至少一个 Google 账号');
     }
@@ -4774,8 +5161,15 @@ function saveChannel() {
       project_id: a.project_id || '',
       email: a.email || ''
     }));
-    // Keep the single-account field in sync for older readers.
     preferences.oauth = { ...preferences.oauth_accounts[0] };
+  } else if (isCodex) {
+    delete preferences.oauth_accounts;
+    preferences.oauth = {
+      email: chCodexOauthState.email || '',
+      account_id: chCodexOauthState.account_id || (key.includes(',') ? key.split(',')[0].trim() : ''),
+      refresh_token: chCodexOauthState.refresh_token || (key.includes(',') ? key.split(',')[1].trim() : key),
+      plan: chCodexOauthState.plan || ''
+    };
   } else {
     delete preferences.oauth;
     delete preferences.oauth_accounts;
@@ -4805,10 +5199,14 @@ function saveChannel() {
     models,
     model: models
   };
-  if (isOauth) {
+  if (isAntigravity) {
     provider.engine = 'antigravity';
-  } else if ((provider.engine || '').toLowerCase() === 'antigravity') {
-    delete provider.engine;
+  } else if (isCodex) {
+    provider.engine = 'codex';
+  } else {
+    if ((provider.engine || '').toLowerCase() === 'antigravity' || (provider.engine || '').toLowerCase() === 'codex') {
+      delete provider.engine;
+    }
   }
   delete provider.headers;
   if (Object.keys(preferences).length > 0) {

@@ -3,17 +3,37 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
-const DEFAULT_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
-const DEFAULT_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+pub const DEFAULT_AUTH_URL: &str = "https://auth.openai.com/oauth/authorize";
+pub const DEFAULT_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+pub const DEFAULT_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+pub const DEFAULT_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct CodexTokenBundle {
+    pub email: String,
+    pub account_id: String,
+    pub refresh_token: String,
+    pub plan: String,
+}
+
+#[derive(Clone)]
+struct PendingCodexSession {
+    code_verifier: String,
+    created_at: u64,
+}
 
 #[derive(Clone)]
 pub struct CodexOAuthManager {
     cache: Arc<Mutex<HashMap<String, CachedToken>>>,
     locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     persisted: Arc<Mutex<Option<HashMap<String, String>>>>,
+    sessions: Arc<Mutex<HashMap<String, PendingCodexSession>>>,
     store_path: Arc<PathBuf>,
     token_url: Arc<str>,
     client_id: Arc<str>,
@@ -38,6 +58,7 @@ impl CodexOAuthManager {
             cache: Arc::new(Mutex::new(HashMap::new())),
             locks: Arc::new(Mutex::new(HashMap::new())),
             persisted: Arc::new(Mutex::new(None)),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
             store_path: Arc::new(PathBuf::from(
                 std::env::var("CODEX_REFRESH_TOKEN_STORE_PATH")
                     .unwrap_or_else(|_| "./data/codex_refresh_tokens.json".into()),
@@ -50,6 +71,211 @@ impl CodexOAuthManager {
                 .into(),
             refresh_skew: Duration::from_secs(30),
         }
+    }
+
+    /// Generate a PKCE-protected authorization URL for logging into Codex/OpenAI.
+    pub async fn start_oauth(&self) -> (String, String) {
+        let (verifier, challenge) = generate_pkce();
+        let state = format!("cx{:x}{:x}", unix_millis(), std::process::id());
+        {
+            let mut sessions = self.sessions.lock().await;
+            let now = unix_seconds();
+            // Prune sessions older than 15 minutes
+            sessions.retain(|_, s| now.saturating_sub(s.created_at) < 900);
+            sessions.insert(
+                state.clone(),
+                PendingCodexSession {
+                    code_verifier: verifier,
+                    created_at: now,
+                },
+            );
+        }
+        let params = [
+            ("client_id", self.client_id.as_ref()),
+            ("response_type", "code"),
+            ("redirect_uri", DEFAULT_REDIRECT_URI),
+            ("scope", "openid email profile offline_access"),
+            ("state", &state),
+            ("code_challenge", &challenge),
+            ("code_challenge_method", "S256"),
+            ("prompt", "login"),
+            ("id_token_add_organizations", "true"),
+            ("codex_cli_simplified_flow", "true"),
+        ];
+        let auth_url = format!(
+            "{DEFAULT_AUTH_URL}?{}",
+            params
+                .iter()
+                .map(|(k, v)| format!(
+                    "{}={}",
+                    urlencoding_encode(k),
+                    urlencoding_encode(v)
+                ))
+                .collect::<Vec<_>>()
+                .join("&")
+        );
+        (auth_url, state)
+    }
+
+    /// Exchange an authorization code for access and refresh tokens.
+    pub async fn exchange_code(
+        &self,
+        code: &str,
+        state: Option<&str>,
+        proxy: Option<&str>,
+    ) -> Result<CodexTokenBundle, String> {
+        let verifier = {
+            let mut sessions = self.sessions.lock().await;
+            if let Some(state_key) = state {
+                sessions
+                    .remove(state_key)
+                    .map(|s| s.code_verifier)
+            } else {
+                // If state not supplied, pick the latest session
+                sessions
+                    .iter()
+                    .max_by_key(|(_, s)| s.created_at)
+                    .map(|(k, _)| k.clone())
+                    .and_then(|k| sessions.remove(&k))
+                    .map(|s| s.code_verifier)
+            }
+        }
+        .ok_or_else(|| "OAuth 会话已过期或不存在，请重新生成授权链接".to_owned())?;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "authorization_code")
+            .append_pair("client_id", self.client_id.as_ref())
+            .append_pair("code", code.trim())
+            .append_pair("redirect_uri", DEFAULT_REDIRECT_URI)
+            .append_pair("code_verifier", &verifier)
+            .finish();
+
+        let mut builder = reqwest::Client::builder().http1_only();
+        if let Some(proxy) = proxy.filter(|p| !p.trim().is_empty()) {
+            builder = builder.proxy(
+                reqwest::Proxy::all(proxy)
+                    .map_err(|error| format!("invalid Codex OAuth proxy: {error}"))?,
+            );
+        }
+        let client = builder
+            .build()
+            .map_err(|error| format!("build Codex OAuth client: {error}"))?;
+
+        let response = client
+            .post(self.token_url.as_ref())
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("accept", "application/json")
+            .timeout(Duration::from_secs(30))
+            .body(body)
+            .send()
+            .await
+            .map_err(|error| format!("Codex token exchange request failed: {error}"))?;
+
+        let status = response.status();
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|error| format!("Read Codex token exchange response failed: {error}"))?;
+
+        if !status.is_success() {
+            return Err(format!(
+                "Codex token exchange failed: status {}: {}",
+                status.as_u16(),
+                String::from_utf8_lossy(&body_bytes)
+            ));
+        }
+
+        let payload: Value = serde_json::from_slice(&body_bytes)
+            .map_err(|error| format!("Decode Codex token exchange response failed: {error}"))?;
+
+        let refresh_token = payload
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .ok_or_else(|| "Codex token exchange returned empty refresh_token".to_owned())?
+            .to_owned();
+
+        let id_token = payload.get("id_token").and_then(Value::as_str).unwrap_or_default();
+        let (email, account_id, plan) = parse_jwt_claims(id_token);
+
+        Ok(CodexTokenBundle {
+            email,
+            account_id,
+            refresh_token,
+            plan,
+        })
+    }
+
+    /// Import an existing Codex refresh_token, validating it by refreshing once
+    /// and extracting user email and account_id from the returned ID token.
+    pub async fn import_refresh_token(
+        &self,
+        refresh_token: &str,
+        proxy: Option<&str>,
+    ) -> Result<CodexTokenBundle, String> {
+        let mut builder = reqwest::Client::builder().http1_only();
+        if let Some(proxy) = proxy.filter(|p| !p.trim().is_empty()) {
+            builder = builder.proxy(
+                reqwest::Proxy::all(proxy)
+                    .map_err(|error| format!("invalid Codex OAuth proxy: {error}"))?,
+            );
+        }
+        let client = builder
+            .build()
+            .map_err(|error| format!("build Codex OAuth client: {error}"))?;
+
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("client_id", self.client_id.as_ref())
+            .append_pair("grant_type", "refresh_token")
+            .append_pair("refresh_token", refresh_token.trim())
+            .append_pair("scope", "openid profile email")
+            .finish();
+
+        let response = client
+            .post(self.token_url.as_ref())
+            .header("content-type", "application/x-www-form-urlencoded")
+            .header("accept", "application/json")
+            .timeout(Duration::from_secs(30))
+            .body(body)
+            .send()
+            .await
+            .map_err(|error| format!("Codex token import request failed: {error}"))?;
+
+        let status = response.status();
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|error| format!("Read Codex token import response failed: {error}"))?;
+
+        if !status.is_success() {
+            return Err(format!(
+                "Codex token import failed: status {}: {}",
+                status.as_u16(),
+                String::from_utf8_lossy(&body_bytes)
+            ));
+        }
+
+        let payload: Value = serde_json::from_slice(&body_bytes)
+            .map_err(|error| format!("Decode Codex token import response failed: {error}"))?;
+
+        let returned_refresh = payload
+            .get("refresh_token")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .unwrap_or(refresh_token)
+            .to_owned();
+
+        let id_token = payload.get("id_token").and_then(Value::as_str).unwrap_or_default();
+        let (email, account_id, plan) = parse_jwt_claims(id_token);
+
+        Ok(CodexTokenBundle {
+            email,
+            account_id,
+            refresh_token: returned_refresh,
+            plan,
+        })
     }
 
     pub async fn resolve(&self, raw_key: &str, proxy: Option<&str>) -> Result<CodexAuth, String> {
@@ -261,6 +487,70 @@ fn unix_seconds() -> u64 {
         .as_secs()
 }
 
+fn unix_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+fn urlencoding_encode(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+fn generate_pkce() -> (String, String) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static PKCE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+    let seed = format!(
+        "{:x}-{:x}-{:x}-codex-pkce-oauth",
+        unix_millis(),
+        std::process::id(),
+        PKCE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let verifier = URL_SAFE_NO_PAD.encode(Sha256::digest(seed.as_bytes()));
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    (verifier, challenge)
+}
+
+fn parse_jwt_claims(token: &str) -> (String, String, String) {
+    let mut parts = token.split('.');
+    let _header = parts.next();
+    let Some(payload_b64) = parts.next() else {
+        return (String::new(), String::new(), "free".into());
+    };
+    let padded = format!("{payload_b64}{}", "=".repeat((4 - payload_b64.len() % 4) % 4));
+    let Ok(decoded) = base64::engine::general_purpose::URL_SAFE.decode(padded.as_bytes())
+        .or_else(|_| URL_SAFE_NO_PAD.decode(payload_b64.as_bytes()))
+    else {
+        return (String::new(), String::new(), "free".into());
+    };
+    let Ok(val) = serde_json::from_slice::<Value>(&decoded) else {
+        return (String::new(), String::new(), "free".into());
+    };
+    let email = val.get("email").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let auth = val.get("https://api.openai.com/auth");
+    let account_id = auth
+        .and_then(|a| a.get("chatgpt_account_id"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            auth.and_then(|a| a.get("organizations"))
+                .and_then(Value::as_array)
+                .and_then(|orgs| orgs.first())
+                .and_then(|org| org.get("id"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or_default()
+        .to_owned();
+    let plan = auth
+        .and_then(|a| a.get("chatgpt_plan_type"))
+        .and_then(Value::as_str)
+        .unwrap_or("free")
+        .to_owned();
+    (email, account_id, plan)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +562,34 @@ mod tests {
         assert_eq!(account.as_deref(), Some("acct"));
         assert_eq!(token, "refresh");
         assert!(split_refresh_key("acct,").is_err());
+    }
+
+    #[tokio::test]
+    async fn codex_oauth_starts_and_generates_valid_auth_url() {
+        let manager = CodexOAuthManager::new();
+        let (auth_url, state) = manager.start_oauth().await;
+        assert!(auth_url.starts_with("https://auth.openai.com/oauth/authorize?"));
+        assert!(auth_url.contains("client_id=app_EMoamEEZ73f0CkXaXp7hrann"));
+        assert!(auth_url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"));
+        assert!(auth_url.contains(&format!("state={state}")));
+        assert!(auth_url.contains("code_challenge="));
+        assert!(auth_url.contains("code_challenge_method=S256"));
+    }
+
+    #[test]
+    fn parses_jwt_claims_safely() {
+        let payload = serde_json::json!({
+            "email": "test@example.com",
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "org-9999",
+                "chatgpt_plan_type": "pro"
+            }
+        });
+        let payload_b64 = URL_SAFE_NO_PAD.encode(payload.to_string().as_bytes());
+        let dummy_jwt = format!("eyJhbGciOiJSUzI1NiJ9.{payload_b64}.sig");
+        let (email, account_id, plan) = parse_jwt_claims(&dummy_jwt);
+        assert_eq!(email, "test@example.com");
+        assert_eq!(account_id, "org-9999");
+        assert_eq!(plan, "pro");
     }
 }
