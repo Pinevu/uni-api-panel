@@ -3002,7 +3002,7 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
       <input id="chPromptCacheAffinity" type="checkbox" onchange="syncPromptCacheControls()">
       <span class="opt-row-text">
         <span class="opt-row-title">Prompt Cache 亲和</span>
-        <span class="opt-row-sub">缓存键与上游 Key 亲和，仅确认兼容时开启</span>
+        <span class="opt-row-sub">默认开启：自动注入缓存键与保留期，提高前缀缓存命中</span>
       </span>
       <select class="opt-mini-select" id="chPromptCacheRetention" onclick="event.stopPropagation()">
         <option value="">保留期</option>
@@ -3205,9 +3205,11 @@ function updateChannelCustomHeaders() {
 }
 
 function setPromptCacheAffinity(preferences = {}) {
-  const enabled = preferences.prompt_cache_affinity === true;
+  // 后端默认开启，只有显式 false 才视为关闭
+  const enabled = preferences.prompt_cache_affinity !== false;
   $('#chPromptCacheAffinity').checked = enabled;
-  $('#chPromptCacheRetention').value = enabled ? (preferences.prompt_cache_retention || '') : '';
+  const retention = preferences.prompt_cache_retention;
+  $('#chPromptCacheRetention').value = enabled ? (retention === undefined ? '24h' : retention) : '';
   syncPromptCacheControls();
 }
 
@@ -4016,7 +4018,9 @@ function getProviderCategory(p) {
 
 function renderSingleChannelCard(p, i) {
   const models = p.models || p.model || [];
-  const cacheEnabled = p.preferences?.prompt_cache_affinity === true;
+  const cacheEngine = (p.engine || 'gpt').toLowerCase();
+  const cacheCompatible = ['gpt', 'openai', 'codex', 'openrouter', 'azure', 'azure-databricks'].includes(cacheEngine);
+  const cacheEnabled = cacheCompatible && p.preferences?.prompt_cache_affinity !== false;
   const isAntigravity = (p.engine || '').toLowerCase() === 'antigravity'
     || Boolean(p.preferences?.oauth?.project_id)
     || (Array.isArray(p.preferences?.oauth_accounts) && p.preferences.oauth_accounts.length > 0);
@@ -4050,7 +4054,7 @@ function renderSingleChannelCard(p, i) {
           <span class="ch-name" title="${esc(p.provider || '')}">${esc(p.provider || 'Provider ' + (i + 1))}</span>
           ${p.preferences?.proxy ? `<span class="ch-badge" title="代理出口：${esc(p.preferences.proxy)}">代理</span>` : ''}
           ${isCodex ? `<span class="ch-badge" style="background:rgba(139,92,246,0.1);color:#8b5cf6;border-color:rgba(139,92,246,0.25)">Codex</span>` : ''}
-          ${cacheEnabled ? `<span class="ch-badge green" title="Prompt Cache 亲和已开启 (${esc(cacheRetention || '默认')})">缓存${cacheRetention ? ` · ${esc(cacheRetention)}` : ''}</span>` : ''}
+          ${cacheEnabled ? `<span class="ch-badge green" title="Prompt Cache 亲和已开启 (${esc(cacheRetention || '24h')})">缓存 · ${esc(cacheRetention || '24h')}</span>` : ''}
         </div>
         <div class="ch-actions">
           <div class="ch-toggle" onclick="toggleChBody(this)">
@@ -5223,13 +5227,15 @@ function saveChannel() {
   if ($('#chPromptCacheAffinity').checked) {
     preferences.prompt_cache_affinity = true;
     const retention = $('#chPromptCacheRetention').value.trim();
+    // 空值代表「不指定」，交由后端按引擎给默认保留期
     if (retention) {
       preferences.prompt_cache_retention = retention;
     } else {
       delete preferences.prompt_cache_retention;
     }
   } else {
-    delete preferences.prompt_cache_affinity;
+    // 必须显式 false：后端默认开启，删除字段会回落到开启状态
+    preferences.prompt_cache_affinity = false;
     delete preferences.prompt_cache_retention;
   }
   const provider = {
