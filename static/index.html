@@ -1005,69 +1005,245 @@ body {
 }
 
 /* ==========================================================================
-   Channel Cards (渠道卡片)
+   Monitor Overview & Channel Cards (监控概览与渠道卡片)
    ========================================================================== */
-.ch-cache {
+.mon-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+@media (max-width: 900px) {
+  .mon-overview-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .mon-overview-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+}
+
+.mon-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 13px 15px;
+  box-shadow: var(--shadow-xs);
   display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 9px;
-  font-size: 11.5px;
-}
-.ch-cache.is-compact { margin-top: 3px; }
-.ch-cache-label {
-  color: var(--text-muted);
-  flex-shrink: 0;
-  letter-spacing: .2px;
-}
-.ch-cache-bar {
-  flex: 1;
-  min-width: 42px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--bg-subtle);
+  flex-direction: column;
+  gap: 5px;
+  transition: var(--transition);
+  position: relative;
   overflow: hidden;
 }
-.ch-cache.is-compact .ch-cache-bar { height: 3px; }
-.ch-cache-bar > i {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  transition: width .35s ease;
+.mon-stat-card:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-focus);
 }
-.ch-cache-value {
-  font-variant-numeric: tabular-nums;
+.mon-stat-label {
+  font-size: 11.5px;
   font-weight: 600;
-  flex-shrink: 0;
-  min-width: 40px;
-  text-align: right;
-}
-.ch-cache-tokens {
   color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-  font-size: 10.5px;
-}
-.ch-model-row { padding: 6px 0; }
-.ch-model-line {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-size: 12.5px;
+  justify-content: space-between;
 }
+.mon-stat-value {
+  font-size: 21px;
+  font-weight: 750;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.mon-stat-sub {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.ch-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+@media (max-width: 640px) {
+  .ch-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
 .ch-card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border);
-  margin-bottom: 14px;
   transition: var(--transition);
+  display: flex;
+  flex-direction: column;
 }
-
 .ch-card:hover {
   box-shadow: var(--shadow-md);
   border-color: var(--border-focus);
+}
+
+.ch-rate-badge {
+  font-size: 13px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  line-height: 1.25;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Channel Level Cache Box (新独立缓存槽) */
+.ch-cache-box {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ch-cache-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+}
+.ch-cache-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-weight: 550;
+}
+.ch-cache-badge {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  line-height: 1.2;
+}
+.ch-cache-ratio {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ch-cache-slash {
+  opacity: 0.5;
+  margin: 0 1px;
+}
+.ch-cache-track {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  overflow: hidden;
+}
+.ch-cache-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Model rows inside channel card */
+.ch-models-wrap {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-light);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ch-model-item {
+  padding: 4px 6px;
+  border-radius: var(--radius-xs);
+  transition: background 0.15s ease;
+}
+.ch-model-item:hover {
+  background: var(--bg-subtle);
+}
+.ch-model-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.ch-model-name {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.ch-model-stat {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ch-model-cache-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 10.5px;
+}
+.ch-model-cache-track {
+  flex: 1;
+  min-width: 32px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  overflow: hidden;
+}
+.ch-model-cache-track > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.35s ease;
+}
+.ch-model-cache-num {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
+}
+.ch-model-cache-toks {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ch-models-toggle-btn {
+  width: 100%;
+  padding: 6px 0 2px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: var(--transition);
+}
+.ch-models-toggle-btn:hover {
+  opacity: 0.8;
 }
 
 /* Channel history cards for deleted channels: muted + dashed so they read as
@@ -2757,6 +2933,7 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
 <div class="page" id="page-monitor">
   <div class="filter-bar">
     <select class="filter-select" id="monHoursSelect" onchange="loadMonitor()">
+      <option value="1">最近 1 小时</option>
       <option value="24">最近 24 小时</option>
       <option value="168" selected>最近 7 天</option>
       <option value="720">最近 30 天</option>
@@ -3681,55 +3858,159 @@ async function loadMonitor() {
     const ips = (hours === 720 ? stats : (stats30d || stats)).ip_request_counts || [];
     const retentionDays = Number(stats.stats_retention_days || 30);
 
-    const cacheColor = r => r >= 0.8 ? 'var(--success)' : r >= 0.4 ? 'var(--warning)' : 'var(--danger)';
-    const cacheRow = (prompt, cached, rate, compact) => {
+    // 缓存颜色与背景色映射
+    const getCacheColor = (rate, cached) => {
+      if (!cached || rate <= 0) return 'var(--text-muted)';
+      if (rate >= 0.8) return 'var(--success)';
+      if (rate >= 0.4) return '#6366f1';
+      return 'var(--warning)';
+    };
+    const getCacheBg = (rate, cached) => {
+      if (!cached || rate <= 0) return 'rgba(148, 163, 184, 0.12)';
+      if (rate >= 0.8) return 'var(--success-light)';
+      if (rate >= 0.4) return 'rgba(99, 102, 241, 0.12)';
+      return 'var(--warning-light)';
+    };
+
+    // 顶部全网概览统计卡片
+    const totalReqs = ch.reduce((sum, c) => sum + (c.total_requests || 0), 0);
+    const successfulReqs = ch.reduce((sum, c) => sum + Math.round((c.total_requests || 0) * (c.success_rate || 0)), 0);
+    const globalSuccessRate = totalReqs > 0 ? (successfulReqs / totalReqs * 100).toFixed(1) : '100.0';
+    const totalPrompt = ch.reduce((sum, c) => sum + (c.prompt_tokens || 0), 0);
+    const totalCached = ch.reduce((sum, c) => sum + (c.cached_tokens || 0), 0);
+    const globalCacheRate = totalPrompt > 0 ? (totalCached / totalPrompt * 100).toFixed(1) : '0.0';
+    const activeCount = ch.filter(c => c.active !== false).length;
+    const totalModels = cm.length;
+
+    const succNum = Number(globalSuccessRate);
+    const succColor = succNum >= 95 ? 'var(--success)' : succNum >= 80 ? 'var(--warning)' : 'var(--danger)';
+    const gCacheNum = Number(globalCacheRate);
+    const gCacheColor = getCacheColor(gCacheNum / 100, totalCached);
+
+    const renderOverview = () => {
+      if (!ch.length) return '';
+      const windowText = hours >= 24 ? `最近 ${Math.round(hours / 24)} 天` : `最近 ${hours} 小时`;
+      return `
+        <div class="mon-overview-grid">
+          <div class="mon-stat-card">
+            <div class="mon-stat-label">
+              <span>总调用量</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            </div>
+            <div class="mon-stat-value">${totalReqs.toLocaleString()}</div>
+            <div class="mon-stat-sub">成功 ${successfulReqs.toLocaleString()} 次 (${globalSuccessRate}%)</div>
+          </div>
+          <div class="mon-stat-card">
+            <div class="mon-stat-label">
+              <span>全局成功率</span>
+              <span class="key-dot" style="background:${succColor};box-shadow:0 0 6px ${succColor}"></span>
+            </div>
+            <div class="mon-stat-value" style="color:${succColor}">${globalSuccessRate}%</div>
+            <div class="mon-stat-sub">${activeCount} 渠道在线 · ${ch.length - activeCount} 历史归档</div>
+          </div>
+          <div class="mon-stat-card">
+            <div class="mon-stat-label">
+              <span>缓存命中率</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            </div>
+            <div class="mon-stat-value" style="color:${gCacheColor}">${globalCacheRate}%</div>
+            <div class="mon-stat-sub">复用 ${fmtTokens(totalCached)} / 总输入 ${fmtTokens(totalPrompt)}</div>
+          </div>
+          <div class="mon-stat-card">
+            <div class="mon-stat-label">
+              <span>监控模型规模</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="mon-stat-value">${totalModels}<span style="font-size:12px;font-weight:500;color:var(--text-muted);margin-left:4px">个模型</span></div>
+            <div class="mon-stat-sub">统计窗口: ${windowText}</div>
+          </div>
+        </div>`;
+    };
+
+    const cacheBox = (prompt, cached, rate) => {
       if (!prompt) return '';
       const pct = Math.max(0, Math.min(100, rate * 100));
-      const color = cacheColor(rate);
+      const color = getCacheColor(rate, cached);
+      const bg = getCacheBg(rate, cached);
       return `
-        <div class="ch-cache${compact ? ' is-compact' : ''}">
-          <span class="ch-cache-label">缓存命中</span>
-          <span class="ch-cache-bar"><i style="width:${pct.toFixed(1)}%;background:${color}"></i></span>
-          <span class="ch-cache-value" style="color:${color}">${pct.toFixed(1)}%</span>
-          ${compact ? '' : `<span class="ch-cache-tokens">${fmtTokens(cached)} / ${fmtTokens(prompt)}</span>`}
+        <div class="ch-cache-box">
+          <div class="ch-cache-header">
+            <div class="ch-cache-title">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              <span>前缀缓存命中</span>
+              <span class="ch-cache-badge" style="color:${color};background:${bg}">${pct.toFixed(1)}%</span>
+            </div>
+            <div class="ch-cache-ratio">${fmtTokens(cached)} <span class="ch-cache-slash">/</span> ${fmtTokens(prompt)}</div>
+          </div>
+          <div class="ch-cache-track">
+            <div class="ch-cache-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+          </div>
         </div>`;
     };
 
     const renderChannelCard = (c, archived) => {
-      const rate = (c.success_rate * 100).toFixed(1);
-      const color = c.success_rate >= 0.95 ? 'var(--success)' : c.success_rate >= 0.7 ? 'var(--warning)' : 'var(--danger)';
+      const rateNum = Number(c.success_rate || 0);
+      const rate = (rateNum * 100).toFixed(1);
+      const color = rateNum >= 0.95 ? 'var(--success)' : rateNum >= 0.7 ? 'var(--warning)' : 'var(--danger)';
+      const rateBg = rateNum >= 0.95 ? 'var(--success-light)' : rateNum >= 0.7 ? 'var(--warning-light)' : 'var(--danger-light)';
       const models = cm.filter(m => m.provider === c.provider);
+      const MAX_VISIBLE = 4;
+      const visibleModels = models.slice(0, MAX_VISIBLE);
+      const hiddenModels = models.slice(MAX_VISIBLE);
+
+      const renderModelItem = m => {
+        const mRateNum = Number(m.success_rate || 0);
+        const mRateColor = mRateNum >= 0.95 ? 'var(--success)' : mRateNum >= 0.7 ? 'var(--warning)' : 'var(--danger)';
+        const mPct = Math.max(0, Math.min(100, (m.cache_hit_rate || 0) * 100));
+        const mColor = getCacheColor(m.cache_hit_rate || 0, m.cached_tokens);
+        return `
+          <div class="ch-model-item">
+            <div class="ch-model-line">
+              <span class="ch-model-name mono" title="${esc(m.model)}">${esc(m.model)}</span>
+              <span class="ch-model-stat">${m.total_requests} 次 · <strong style="color:${mRateColor}">${(mRateNum * 100).toFixed(0)}%</strong></span>
+            </div>
+            ${m.prompt_tokens ? `
+              <div class="ch-model-cache-line">
+                <div class="ch-model-cache-track"><i style="width:${mPct.toFixed(1)}%;background:${mColor}"></i></div>
+                <span class="ch-model-cache-num" style="color:${mColor}">${mPct.toFixed(1)}%</span>
+                <span class="ch-model-cache-toks">${fmtTokens(m.cached_tokens)}/${fmtTokens(m.prompt_tokens)}</span>
+              </div>` : ''}
+          </div>`;
+      };
+
       return `
         <div class="ch-card${archived ? ' is-archived' : ''}">
           <div class="ch-top">
             <div class="ch-name-row">
-              <span class="key-dot" style="background:${color}"></span>
-              <span class="ch-name">${esc(c.provider)}</span>
+              <span class="key-dot" style="background:${color};box-shadow:0 0 6px ${color}"></span>
+              <span class="ch-name" title="${esc(c.provider)}">${esc(c.provider)}</span>
               ${archived ? '<span class="ch-archived-badge">已删除</span>' : ''}
             </div>
             <div style="text-align:right">
-              <span style="font-size:18px;font-weight:700;color:${color}">${rate}%</span>
-              <div style="font-size:11px;color:var(--text-muted)">${c.total_requests} 次请求</div>
+              <span class="ch-rate-badge" style="background:${rateBg};color:${color}">${rate}%</span>
+              <div style="font-size:10.5px;color:var(--text-muted);margin-top:2px">${c.total_requests} 次请求</div>
             </div>
           </div>
-          ${cacheRow(c.prompt_tokens, c.cached_tokens, c.cache_hit_rate || 0, false)}
-          <div style="margin-top:10px;border-top:1px solid var(--border-light);padding-top:8px">
-            ${models.map(m => `
-              <div class="ch-model-row">
-                <div class="ch-model-line">
-                  <span class="mono" style="color:var(--text-secondary)">${esc(m.model)}</span>
-                  <span style="color:var(--text-muted)">${m.total_requests} 次 · ${(m.success_rate * 100).toFixed(0)}% 成功</span>
+          ${cacheBox(c.prompt_tokens, c.cached_tokens, c.cache_hit_rate || 0)}
+          ${models.length ? `
+            <div class="ch-models-wrap">
+              ${visibleModels.map(renderModelItem).join('')}
+              ${hiddenModels.length ? `
+                <div class="ch-models-extra" style="display:none;flex-direction:column;gap:5px">
+                  ${hiddenModels.map(renderModelItem).join('')}
                 </div>
-                ${cacheRow(m.prompt_tokens, m.cached_tokens, m.cache_hit_rate || 0, true)}
-              </div>`).join('')}
-          </div>
+                <button class="ch-models-toggle-btn" data-total="${hiddenModels.length}" onclick="toggleChannelModels(this)">
+                  展开另外 ${hiddenModels.length} 个模型 ▾
+                </button>` : ''}
+            </div>` : ''}
         </div>`;
     };
 
     const activeChannels = ch.filter(c => c.active !== false);
     const archivedChannels = ch.filter(c => c.active === false);
 
-    let html = activeChannels.map(c => renderChannelCard(c, false)).join('');
+    let html = renderOverview();
+    html += `<div class="ch-cards-grid">${activeChannels.map(c => renderChannelCard(c, false)).join('')}</div>`;
 
     if (archivedChannels.length) {
       html += `
@@ -3740,7 +4021,7 @@ async function loadMonitor() {
           </div>
           <button class="mini-btn" id="monArchivedToggle" onclick="toggleArchivedChannels()">展开</button>
         </div>
-        <div id="monArchivedList" style="display:none">
+        <div id="monArchivedList" style="display:none" class="ch-cards-grid">
           ${archivedChannels.map(c => renderChannelCard(c, true)).join('')}
         </div>`;
     }
@@ -3783,6 +4064,15 @@ async function loadMonitor() {
   } catch (e) {
     showToast('监控加载失败');
   }
+}
+
+function toggleChannelModels(btn) {
+  const extra = btn.previousElementSibling;
+  if (!extra) return;
+  const isHidden = extra.style.display === 'none';
+  extra.style.display = isHidden ? 'flex' : 'none';
+  const total = btn.dataset.total;
+  btn.textContent = isHidden ? '收起模型 ▴' : `展开另外 ${total} 个模型 ▾`;
 }
 
 function toggleArchivedChannels() {
