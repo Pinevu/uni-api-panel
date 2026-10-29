@@ -3986,17 +3986,25 @@ fn gemini_to_chat(value: &Value, model: &str) -> Value {
             .expect("chat message")
             .insert("tool_calls".into(), Value::Array(tool_calls));
     }
+    let mut usage_json = json!({
+        "prompt_tokens":usage.get("promptTokenCount").cloned().unwrap_or(json!(0)),
+        "completion_tokens":usage.get("candidatesTokenCount").cloned().unwrap_or(json!(0)),
+        "total_tokens":usage.get("totalTokenCount").cloned().unwrap_or(json!(0)),
+    });
+    // Gemini reports implicit prompt-cache hits as `cachedContentTokenCount`;
+    // surface it in the OpenAI-compatible shape so cache hit rates are visible.
+    if let Some(cached) = usage.get("cachedContentTokenCount").and_then(Value::as_i64) {
+        if cached > 0 {
+            usage_json["prompt_tokens_details"] = json!({"cached_tokens":cached});
+        }
+    }
     json!({
         "id":format!("chatcmpl-{}",unix_seconds()),
         "object":"chat.completion",
         "created":unix_seconds(),
         "model":model,
         "choices":[{"index":0,"message":message,"finish_reason":"stop"}],
-        "usage":{
-            "prompt_tokens":usage.get("promptTokenCount").cloned().unwrap_or(json!(0)),
-            "completion_tokens":usage.get("candidatesTokenCount").cloned().unwrap_or(json!(0)),
-            "total_tokens":usage.get("totalTokenCount").cloned().unwrap_or(json!(0)),
-        },
+        "usage":usage_json,
     })
 }
 

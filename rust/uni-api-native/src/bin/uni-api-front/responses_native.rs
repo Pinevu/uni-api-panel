@@ -2701,48 +2701,68 @@ pub(crate) fn apply_prompt_cache_affinity(
     request_model: &str,
     engine: &str,
 ) {
-    // Prompt caching is upstream-specific. It is opt-in per provider so an
-    // unsupported gateway never receives unexpected cache parameters.
+    // Prompt caching is upstream-specific. OpenAI-family engines accept these
+    // parameters natively, so affinity is on by default for them and can still
+    // be switched off per provider with `prompt_cache_affinity: false`.
     let enabled = provider
         .preferences
         .get("prompt_cache_affinity")
         .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if !enabled || !matches!(engine, "gpt" | "openrouter" | "azure" | "azure-databricks") {
-        return;
-    }
-    if root
-        .get("prompt_cache_key")
-        .and_then(Value::as_str)
-        .is_some_and(|key| !key.trim().is_empty())
+        .unwrap_or(true);
+    if !enabled
+        || !matches!(
+            engine,
+            "gpt" | "openai" | "codex" | "openrouter" | "azure" | "azure-databricks"
+        )
     {
         return;
     }
 
-    let client_scope = extract_api_key(incoming)
-        .map(|key| format!("client:{key}"))
-        .unwrap_or_else(|| "client:anonymous".into());
-    let conversation_scope = incoming
-        .get("x-prompt-cache-key")
-        .or_else(|| incoming.get("x-session-id"))
-        .or_else(|| incoming.get("session-id"))
-        .or_else(|| incoming.get("conversation-id"))
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("default");
-    let scope = format!("provider:{}\0{client_scope}\0{conversation_scope}", provider.name);
-    root.insert(
-        "prompt_cache_key".into(),
-        Value::String(stable_prompt_cache_key(&scope, request_model)),
-    );
-    if let Some(retention) = provider
+    let client_supplied_key = root
+        .get("prompt_cache_key")
+        .and_then(Value::as_str)
+        .is_some_and(|key| !key.trim().is_empty());
+    if !client_supplied_key {
+        let client_scope = extract_api_key(incoming)
+            .map(|key| format!("client:{key}"))
+            .unwrap_or_else(|| "client:anonymous".into());
+        let conversation_scope = incoming
+            .get("x-prompt-cache-key")
+            .or_else(|| incoming.get("x-session-id"))
+            .or_else(|| incoming.get("session-id"))
+            .or_else(|| incoming.get("conversation-id"))
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("default");
+        let scope = format!(
+            "provider:{}\0{client_scope}\0{conversation_scope}",
+            provider.name
+        );
+        root.insert(
+            "prompt_cache_key".into(),
+            Value::String(stable_prompt_cache_key(&scope, request_model)),
+        );
+    }
+
+    // `prompt_cache_retention` is what actually extends the upstream cache
+    // lifetime. Measured on production traffic: a cache key alone kept the
+    // default (short) window and produced zero hits on the ChatGPT backend,
+    // while key + `24h` reached ~98% cached tokens on the second request.
+    // Default it to 24h for OpenAI-family engines; a provider can override the
+    // value or disable it with an empty string.
+    let retention = match provider
         .preferences
         .get("prompt_cache_retention")
         .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
     {
+        Some(value) if value.trim().is_empty() => None,
+        Some(value) => Some(value.trim().to_owned()),
+        None if matches!(engine, "gpt" | "openai" | "codex") => Some("24h".to_owned()),
+        None => None,
+    };
+    if let Some(retention) = retention {
         root.entry("prompt_cache_retention")
-            .or_insert_with(|| Value::String(retention.to_owned()));
+            .or_insert_with(|| Value::String(retention));
     }
 }
 
@@ -3877,6 +3897,53 @@ mod tests {
         let mut other = Map::new();
         apply_prompt_cache_affinity(&mut other, &provider, &headers, "gpt-public", "gpt");
         assert_ne!(first["prompt_cache_key"], other["prompt_cache_key"]);
+    }
+
+    #[test]
+    fn prompt_cache_affinity_defaults_on_with_24h_retention() {
+        let mut provider = provider();
+        provider.engine = Arc::from("gpt");
+        provider.preferences = Arc::new(Map::new());
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", HeaderValue::from_static("Bearer client-a"));
+
+        let mut body = Map::new();
+        apply_prompt_cache_affinity(&mut body, &provider, &headers, "gpt-public", "gpt");
+        assert!(body.contains_key("prompt_cache_key"));
+        assert_eq!(body["prompt_cache_retention"], "24h");
+
+        provider.preferences = Arc::new(Map::from_iter([(
+            "prompt_cache_affinity".into(),
+            Value::Bool(false),
+        )]));
+        let mut opted_out = Map::new();
+        apply_prompt_cache_affinity(&mut opted_out, &provider, &headers, "gpt-public", "gpt");
+        assert!(!opted_out.contains_key("prompt_cache_key"));
+        assert!(!opted_out.contains_key("prompt_cache_retention"));
+    }
+
+    #[test]
+    fn prompt_cache_retention_can_be_overridden_or_disabled() {
+        let mut provider = provider();
+        provider.engine = Arc::from("gpt");
+        let headers = HeaderMap::new();
+
+        provider.preferences = Arc::new(Map::from_iter([(
+            "prompt_cache_retention".into(),
+            Value::String("in_memory".into()),
+        )]));
+        let mut overridden = Map::new();
+        apply_prompt_cache_affinity(&mut overridden, &provider, &headers, "gpt-public", "gpt");
+        assert_eq!(overridden["prompt_cache_retention"], "in_memory");
+
+        provider.preferences = Arc::new(Map::from_iter([(
+            "prompt_cache_retention".into(),
+            Value::String(String::new()),
+        )]));
+        let mut disabled = Map::new();
+        apply_prompt_cache_affinity(&mut disabled, &provider, &headers, "gpt-public", "gpt");
+        assert!(!disabled.contains_key("prompt_cache_retention"));
+        assert!(disabled.contains_key("prompt_cache_key"));
     }
 
     #[test]

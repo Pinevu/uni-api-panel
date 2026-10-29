@@ -408,6 +408,7 @@ struct StreamState {
     response_tool_output_indexes: HashMap<u64, usize>,
     prompt_tokens: i64,
     completion_tokens: i64,
+    cached_tokens: i64,
     chat_usage: Option<Value>,
     terminal: bool,
     output_protocol: OutputProtocol,
@@ -430,6 +431,7 @@ impl StreamState {
             response_tool_output_indexes: HashMap::new(),
             prompt_tokens: 0,
             completion_tokens: 0,
+            cached_tokens: 0,
             chat_usage: None,
             terminal: false,
             output_protocol,
@@ -613,6 +615,9 @@ impl StreamState {
             self.prompt_tokens = number(usage.get("promptTokenCount"));
             self.completion_tokens =
                 number(usage.get("candidatesTokenCount")) + number(usage.get("thoughtsTokenCount"));
+            // Gemini implicit prompt caching is reported here; keep it so the
+            // OpenAI-compatible usage block can expose `cached_tokens`.
+            self.cached_tokens = number(usage.get("cachedContentTokenCount"));
         }
         if value
             .pointer("/candidates/0/finishReason")
@@ -835,11 +840,15 @@ impl StreamState {
         }
         self.terminal = true;
         let usage = self.chat_usage.clone().unwrap_or_else(|| {
-            json!({
+            let mut usage = json!({
                 "prompt_tokens":self.prompt_tokens,
                 "completion_tokens":self.completion_tokens,
                 "total_tokens":self.prompt_tokens + self.completion_tokens,
-            })
+            });
+            if self.cached_tokens > 0 {
+                usage["prompt_tokens_details"] = json!({"cached_tokens":self.cached_tokens});
+            }
+            usage
         });
         if self.output_protocol == OutputProtocol::Responses {
             return vec![self.chunk(json!({}), Some(reason), Some(usage))];
