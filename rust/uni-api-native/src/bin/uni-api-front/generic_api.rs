@@ -3062,30 +3062,116 @@ fn chat_to_gemini(input: &Value, original_model: &str) -> Result<Value, String> 
     Ok(output)
 }
 
-fn sanitize_gemini_schema(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            object.remove("additionalProperties");
-            if let Some(default) = object.remove("default") {
-                let description = object
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                object.insert(
-                    "description".into(),
-                    Value::String(format!("{description}\nDefault: {default}")),
-                );
+fn sanitize_gemini_schema(schema: &mut Value) {
+    let Some(object) = schema.as_object_mut() else {
+        return;
+    };
+
+    // Remove unsupported schema keywords
+    object.remove("additionalProperties");
+    object.remove("$schema");
+    object.remove("title");
+
+    // Normalize type: ["string", "null"] -> type: "string", nullable: true
+    if let Some(types) = object.get("type").and_then(Value::as_array) {
+        let non_null_types = types
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|t| !t.eq_ignore_ascii_case("null"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let has_null = types
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|t| t.eq_ignore_ascii_case("null"));
+        if has_null {
+            object.insert("nullable".into(), Value::Bool(true));
+        }
+        if let Some(first) = non_null_types.first() {
+            object.insert("type".into(), Value::String(first.clone()));
+        }
+    }
+
+    // If this schema has a default value (e.g. default: "0", default: 10),
+    // fold it into the description so Gemini models are aware of it without
+    // causing Schema validation rejections.
+    if let Some(default) = object.remove("default") {
+        let default_str = match &default {
+            Value::String(s) => s.clone(),
+            Value::Null => "null".to_owned(),
+            other => other.to_string(),
+        };
+        let description = object
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        if description.is_empty() {
+            object.insert(
+                "description".into(),
+                Value::String(format!("Default: {default_str}")),
+            );
+        } else {
+            object.insert(
+                "description".into(),
+                Value::String(format!("{description}\nDefault: {default_str}")),
+            );
+        }
+    }
+
+    // Recurse into `properties` (a map of property_name -> Schema).
+    // Note: we MUST only recurse into property values, NEVER passing the `properties`
+    // map itself to sanitize_gemini_schema (otherwise a property named "default" would
+    // be misinterpreted as a schema default and mutated into an invalid string value).
+    if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+        for prop_schema in properties.values_mut() {
+            sanitize_gemini_schema(prop_schema);
+        }
+    }
+
+    // Recurse into patternProperties
+    if let Some(pattern_props) = object.get_mut("patternProperties").and_then(Value::as_object_mut) {
+        for prop_schema in pattern_props.values_mut() {
+            sanitize_gemini_schema(prop_schema);
+        }
+    }
+
+    // Recurse into `items` (can be a Schema object or a list of Schemas)
+    if let Some(items) = object.get_mut("items") {
+        match items {
+            Value::Object(_) => sanitize_gemini_schema(items),
+            Value::Array(list) => {
+                for item in list {
+                    sanitize_gemini_schema(item);
+                }
             }
-            for value in object.values_mut() {
-                sanitize_gemini_schema(value);
+            _ => {}
+        }
+    }
+
+    // Recurse into prefixItems
+    if let Some(prefix_items) = object.get_mut("prefixItems").and_then(Value::as_array_mut) {
+        for item in prefix_items {
+            sanitize_gemini_schema(item);
+        }
+    }
+
+    // Recurse into anyOf / allOf / oneOf
+    for key in ["anyOf", "allOf", "oneOf"] {
+        if let Some(variants) = object.get_mut(key).and_then(Value::as_array_mut) {
+            for variant in variants {
+                sanitize_gemini_schema(variant);
             }
         }
-        Value::Array(items) => {
-            for value in items {
-                sanitize_gemini_schema(value);
+    }
+
+    // Recurse into definitions / $defs
+    for key in ["$defs", "definitions"] {
+        if let Some(defs) = object.get_mut(key).and_then(Value::as_object_mut) {
+            for def_schema in defs.values_mut() {
+                sanitize_gemini_schema(def_schema);
             }
         }
-        _ => {}
     }
 }
 
@@ -5650,6 +5736,64 @@ mod tests {
         let claude = chat_to_claude(&input, "claude-upstream").unwrap();
         assert_eq!(claude["system"], "system");
         assert_eq!(claude["tools"][0]["name"], "lookup");
+    }
+
+    #[test]
+    fn gemini_schema_preserves_properties_named_default_and_folds_default_values() {
+        let input = json!({
+            "messages":[{"role":"user","content":"ask something"}],
+            "tools":[{
+                "type":"function",
+                "function":{
+                    "name":"user_ask",
+                    "parameters":{
+                        "type":"object",
+                        "additionalProperties":false,
+                        "properties":{
+                            "questions":{
+                                "type":"array",
+                                "items":{
+                                    "type":"object",
+                                    "properties":{
+                                        "default":{
+                                            "type":"string",
+                                            "description":"0-based index of option"
+                                        },
+                                        "timeout":{
+                                            "type":"integer",
+                                            "description":"timeout in seconds",
+                                            "default":10
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }]
+        });
+        let gemini = chat_to_gemini(&input, "gemini-3.8-flash-high").unwrap();
+        let decl = &gemini["tools"][0]["functionDeclarations"][0];
+        assert_eq!(decl["name"], "user_ask");
+
+        let params = &decl["parameters"];
+        assert!(params.get("additionalProperties").is_none());
+
+        let q_items_props = &params["properties"]["questions"]["items"]["properties"];
+        // Crucial regression check: "default" must remain a valid property Schema object,
+        // NEVER mutated into a string under "description".
+        assert!(q_items_props["default"].is_object());
+        assert_eq!(q_items_props["default"]["type"], "string");
+        assert_eq!(q_items_props["default"]["description"], "0-based index of option");
+
+        // Property with a default value keyword must have its default folded into description.
+        assert!(q_items_props["timeout"].is_object());
+        assert_eq!(q_items_props["timeout"]["type"], "integer");
+        assert!(q_items_props["timeout"].get("default").is_none());
+        assert_eq!(
+            q_items_props["timeout"]["description"],
+            "timeout in seconds\nDefault: 10"
+        );
     }
 
     #[test]

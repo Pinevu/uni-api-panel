@@ -2296,20 +2296,47 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
 .quota-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
 }
-.quota-title { font-size: 13px; font-weight: 750; color: var(--text-primary); }
+.quota-head-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+.quota-title {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--text-primary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .quota-plan {
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 2.5px 8px;
+  font-size: 10px;
+  font-weight: 750;
+  padding: 2.5px 7px;
   border-radius: var(--radius-full);
   border: 1px solid var(--border);
   color: var(--text-secondary);
   background: var(--bg-card);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+.quota-plan.starter {
+  color: #0284c7;
+  border-color: rgba(2, 132, 199, .28);
+  background: rgba(2, 132, 199, .1);
+}
+[data-theme="dark"] .quota-plan.starter {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, .35);
+  background: rgba(56, 189, 248, .14);
 }
 .quota-plan.pro {
   color: #7c3aed;
@@ -2338,11 +2365,14 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 650;
-  padding: 3.5px 10px;
+  padding: 3.5px 9px;
   border-radius: var(--radius-full);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: var(--transition);
 }
 .quota-refresh:hover {
@@ -2454,11 +2484,33 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
   color: var(--danger);
   line-height: 1.5;
 }
+.ch-models-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 650;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  padding: 3px 0;
+}
+.ch-models-header:active {
+  opacity: 0.7;
+}
 .ch-models-toggle {
   font-size: 11px;
   color: var(--primary);
   font-weight: 650;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  user-select: none;
+}
+.ch-models-chevron {
+  transition: transform .2s ease;
 }
 
 /* ===== Channel type picker ===== */
@@ -3793,31 +3845,25 @@ async function loadChannels() {
         || Boolean(p.preferences?.oauth?.refresh_token);
       const cacheRetention = p.preferences?.prompt_cache_retention || '';
       const maskedKey = p.api ? p.api.slice(0, 8) + '...' + p.api.slice(-4) : '(无密钥/留空)';
-      const showLimit = 8;
-      const hasMore = models.length > showLimit;
-      const initialList = models.slice(0, showLimit);
-
       const hasModels = models.length > 0;
       const modelsMarkup = !hasModels ? `
         <div class="ch-empty-models">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
           <span>未配置可用模型，点击右上角「编辑配置」添加或拉取</span>
         </div>` : `
-        <div class="ch-models-header">
+        <div class="ch-models-header" onclick="toggleChModels(${i}, ${models.length})">
           <div style="display:flex;align-items:center;gap:6px">
             <span>支持模型</span>
             <span class="badge badge-purple">${models.length}</span>
           </div>
-          ${hasMore ? `<span class="ch-models-toggle" id="ch-toggle-${i}" onclick="toggleChModels(${i}, ${models.length})">展开全部 (${models.length})</span>` : ''}
+          <span class="ch-models-toggle" id="ch-toggle-${i}">
+            <span>展开全部 (${models.length})</span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="ch-models-chevron"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
         </div>
-        <div class="tags" id="ch-tags-short-${i}">
-          ${initialList.map(renderModelTag).join('')}
-          ${hasMore ? `<span class="tag-more" onclick="toggleChModels(${i}, ${models.length})">+${models.length - showLimit} 更多...</span>` : ''}
-        </div>
-        ${hasMore ? `
-        <div class="tags" id="ch-tags-all-${i}" style="display:none">
+        <div class="tags" id="ch-tags-${i}" style="display:none;margin-top:9px">
           ${models.map(renderModelTag).join('')}
-        </div>` : ''}`;
+        </div>`;
 
       html += `
         <div class="ch-card">
@@ -3863,6 +3909,18 @@ async function loadChannels() {
 /* ===== Antigravity quota card ===== */
 const QUOTA_CACHE = {};
 
+function formatQuotaPlan(raw) {
+  if (!raw) return 'Free';
+  const s = String(raw).trim();
+  const lower = s.toLowerCase();
+  if (lower.includes('ultra')) return 'Ultra';
+  if (lower.includes('pro')) return 'Pro';
+  if (lower.includes('starter')) return 'Starter';
+  if (lower.includes('free')) return 'Free';
+  const cleaned = s.replace(/antigravity/ig, '').replace(/quota/ig, '').replace(/paid/ig, '').replace(/tier/ig, '').trim();
+  return cleaned ? (cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase()) : 'Free';
+}
+
 function renderQuotaAccounts(idx, box, accounts) {
   const windowRow = (label, window) => {
     if (!window || window.remaining === null || window.remaining === undefined) {
@@ -3896,8 +3954,8 @@ function renderQuotaAccounts(idx, box, accounts) {
         <div class="quota-error-desc" style="margin-top:4px">${esc(account.error || '未知错误')}</div>
       </div>`;
     }
-    const planKey = (account.plan || '').toLowerCase();
-    const planClass = planKey.includes('ultra') ? 'ultra' : planKey.includes('pro') ? 'pro' : 'free';
+    const planName = formatQuotaPlan(account.plan);
+    const planClass = planName.toLowerCase();
     const rows = (account.groups || []).map(group => `<div class="quota-group">
         <div class="quota-group-title">${esc(group.label)}${group.model_count ? ` · ${group.model_count} 个模型` : ''}</div>
         ${windowRow('5 小时限额', group.five_hour)}
@@ -3906,7 +3964,7 @@ function renderQuotaAccounts(idx, box, accounts) {
     return `<div class="quota-account">
       <div class="quota-account-head">
         <span class="quota-account-mail">${esc(account.email || '未知账号')}</span>
-        <span class="quota-plan ${planClass}">${esc(account.plan || 'Free')}</span>
+        <span class="quota-plan ${planClass}">${esc(planName)}</span>
       </div>
       ${rows || '<div class="quota-error-desc">上游未返回额度数据</div>'}
     </div>`;
@@ -3915,7 +3973,10 @@ function renderQuotaAccounts(idx, box, accounts) {
     <div class="quota-card">
       <div class="quota-head">
         <span class="quota-title">Antigravity 额度 · ${(accounts || []).length} 个账号</span>
-        <button class="quota-refresh" onclick="loadQuota(${idx}, true)">刷新额度</button>
+        <button class="quota-refresh" onclick="loadQuota(${idx}, true)" title="刷新上游额度">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+          <span>刷新</span>
+        </button>
       </div>
       ${blocks || '<div class="quota-error-desc">该渠道没有可用账号</div>'}
     </div>`;
@@ -3968,8 +4029,8 @@ function renderQuota(idx) {
   }
   const data = state.data || {};
   const groups = data.groups || [];
-  const planKey = (data.plan || '').toLowerCase();
-  const planClass = planKey.includes('ultra') ? 'ultra' : planKey.includes('pro') ? 'pro' : 'free';
+  const planName = formatQuotaPlan(data.plan);
+  const planClass = planName.toLowerCase();
   const windowRow = (label, window) => {
     if (!window || window.remaining === null || window.remaining === undefined) {
       return `<div class="quota-window">
@@ -4001,9 +4062,14 @@ function renderQuota(idx) {
   box.innerHTML = `
     <div class="quota-card">
       <div class="quota-head">
-        <span class="quota-title">Antigravity 额度</span>
-        <span class="quota-plan ${planClass}">套餐 ${esc(data.plan || 'Free')}</span>
-        <button class="quota-refresh" onclick="loadQuota(${idx}, true)">刷新额度</button>
+        <div class="quota-head-left">
+          <span class="quota-title">Antigravity 额度</span>
+          <span class="quota-plan ${planClass}">${esc(planName)}</span>
+        </div>
+        <button class="quota-refresh" onclick="loadQuota(${idx}, true)" title="刷新上游额度">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+          <span>刷新</span>
+        </button>
       </div>
       ${rows || '<div class="quota-error-desc">上游未返回额度数据</div>'}
     </div>`;
@@ -4077,19 +4143,20 @@ function toggleChBody(btn) {
 }
 
 function toggleChModels(idx, total) {
-  const shortBox = $(`#ch-tags-short-${idx}`);
-  const allBox = $(`#ch-tags-all-${idx}`);
+  const box = $(`#ch-tags-${idx}`);
   const toggleBtn = $(`#ch-toggle-${idx}`);
-  if (!shortBox || !allBox) return;
-  const isExpanded = allBox.style.display !== 'none';
-  if (isExpanded) {
-    allBox.style.display = 'none';
-    shortBox.style.display = 'flex';
-    if (toggleBtn) toggleBtn.textContent = `展开全部 (${total})`;
+  if (!box) return;
+  const isHidden = box.style.display === 'none';
+  if (isHidden) {
+    box.style.display = 'flex';
+    if (toggleBtn) {
+      toggleBtn.innerHTML = `<span>收起</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="ch-models-chevron open"><polyline points="18 15 12 9 6 15"/></svg>`;
+    }
   } else {
-    shortBox.style.display = 'none';
-    allBox.style.display = 'flex';
-    if (toggleBtn) toggleBtn.textContent = '收起';
+    box.style.display = 'none';
+    if (toggleBtn) {
+      toggleBtn.innerHTML = `<span>展开全部 (${total})</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="ch-models-chevron"><polyline points="6 9 12 15 18 9"/></svg>`;
+    }
   }
 }
 
