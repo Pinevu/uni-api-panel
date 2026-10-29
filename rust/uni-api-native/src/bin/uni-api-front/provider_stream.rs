@@ -1372,6 +1372,8 @@ fn cached_from_usage(usage: &Value) -> i64 {
         usage.get("prompt_cache_hit_tokens"),
         usage.get("cache_read_input_tokens"),
         usage.get("cachedContentTokenCount"),
+        usage.get("cache_read_tokens"),
+        usage.get("total_cached_tokens"),
     ];
     candidates
         .into_iter()

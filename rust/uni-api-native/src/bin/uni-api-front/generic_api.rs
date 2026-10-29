@@ -3661,7 +3661,121 @@ fn chat_to_claude(input: &Value, original_model: &str) -> Result<Value, String> 
             output.insert("service_tier".into(), Value::String(tier.into()));
         }
     }
+    ensure_cache_control(&mut output);
     Ok(output)
+}
+
+/// Anthropic 不会自动缓存前缀，必须由调用方在稳定前缀的末尾打 `cache_control`
+/// 断点。客户端（尤其是 agent 类）往往整段重写前缀却从不回读，命中率就是 0。
+/// 这里按 CPA `ensureCacheControl` 的做法补断点：system → tools 末项 → 最后一条消息，
+/// 依次尝试，已有断点的不重复加，总量控制在 Anthropic 的 4 个上限内。
+fn ensure_cache_control(payload: &mut Value) {
+    const MARKER: &str = "cache_control";
+    let Some(root) = payload.as_object_mut() else {
+        return;
+    };
+
+    fn mark(block: &mut Value) -> bool {
+        match block.as_object_mut() {
+            Some(object) if object.get(MARKER).is_none() => {
+                object.insert(MARKER.into(), json!({"type":"ephemeral"}));
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn cacheable_text(block: &Value) -> bool {
+        block.get("type").and_then(Value::as_str) == Some("text")
+            && block
+                .get("text")
+                .and_then(Value::as_str)
+                .map(|text| !text.trim().is_empty())
+                .unwrap_or(false)
+    }
+
+    let mut placed = 0usize;
+
+    // 1. system：字符串转成 block 数组，断点落在最后一个可缓存块上。
+    match root.get("system").cloned() {
+        Some(Value::String(text)) if !text.trim().is_empty() => {
+            root.insert(
+                "system".into(),
+                json!([{
+                    "type": "text",
+                    "text": text,
+                    "cache_control": {"type": "ephemeral"},
+                }]),
+            );
+            placed += 1;
+        }
+        Some(Value::Array(mut blocks)) => {
+            // 客户端已经自己打了断点就别动它——它比我们清楚哪段稳定。
+            let has_marker = blocks.iter().any(|block| block.get(MARKER).is_some());
+            if has_marker {
+                placed += 1;
+            } else if let Some(index) = blocks.iter().rposition(cacheable_text) {
+                if mark(&mut blocks[index]) {
+                    placed += 1;
+                }
+            }
+            root.insert("system".into(), Value::Array(blocks));
+        }
+        _ => {}
+    }
+
+    // 2. 没有可用 system：退到 tools 的最后一项。
+    if placed == 0 {
+        if let Some(tools) = root.get_mut("tools").and_then(Value::as_array_mut) {
+            if let Some(tool) = tools.iter_mut().rev().find(|tool| tool.get(MARKER).is_none()) {
+                if mark(tool) {
+                    placed += 1;
+                }
+            }
+        }
+    }
+
+    // 3. 兜底：最后一条消息。滚动缓存，让下一轮能读到这一轮的前缀。
+    if let Some(messages) = root.get_mut("messages").and_then(Value::as_array_mut) {
+        let already = messages
+            .iter()
+            .filter(|message| message.get(MARKER).is_some())
+            .count();
+        if already == 0 {
+            if let Some(message) = messages.last_mut() {
+                match message.get_mut("content") {
+                    Some(Value::String(text)) if !text.trim().is_empty() => {
+                        let text = text.clone();
+                        if let Some(object) = message.as_object_mut() {
+                            object.insert(
+                                "content".into(),
+                                json!([{
+                                    "type": "text",
+                                    "text": text,
+                                    "cache_control": {"type": "ephemeral"},
+                                }]),
+                            );
+                            placed += 1;
+                        }
+                    }
+                    Some(Value::Array(blocks)) => {
+                        if let Some(block) = blocks
+                            .iter_mut()
+                            .rev()
+                            .find(|block| cacheable_text(block) && block.get(MARKER).is_none())
+                        {
+                            if mark(block) {
+                                placed += 1;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let _ = placed;
 }
 
 fn chat_to_cohere(input: &Value, original_model: &str) -> Result<Value, String> {
@@ -5411,6 +5525,8 @@ fn extract_usage_from_sse(event: &[u8]) -> Option<(i64, i64, i64)> {
         usage.get("prompt_cache_hit_tokens"),
         usage.get("cache_read_input_tokens"),
         usage.get("cachedContentTokenCount"),
+        usage.get("cache_read_tokens"),
+        usage.get("total_cached_tokens"),
     ]
     .into_iter()
     .filter_map(|value| value.and_then(Value::as_i64))
@@ -5443,6 +5559,8 @@ fn usage(value: &Value) -> (i64, i64, i64, i64) {
         usage.get("prompt_cache_hit_tokens"),
         usage.get("cache_read_input_tokens"),
         usage.get("cachedContentTokenCount"),
+        usage.get("cache_read_tokens"),
+        usage.get("total_cached_tokens"),
     ]
     .into_iter()
     .filter_map(|value| value.and_then(Value::as_i64))
@@ -5806,8 +5924,41 @@ mod tests {
             "lookup"
         );
         let claude = chat_to_claude(&input, "claude-upstream").unwrap();
-        assert_eq!(claude["system"], "system");
+        // system 会被转成 block 数组并在末尾挂缓存断点，让上游能复用前缀。
+        assert_eq!(claude["system"][0]["text"], "system");
+        assert_eq!(claude["system"][0]["cache_control"]["type"], "ephemeral");
         assert_eq!(claude["tools"][0]["name"], "lookup");
+    }
+
+    #[test]
+    fn cache_control_falls_back_to_tools_when_no_system_block() {
+        let input = json!({
+            "messages":[{"role":"user","content":"hello"}],
+            "tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]
+        });
+        let claude = chat_to_claude(&input, "claude-upstream").unwrap();
+        assert!(claude.get("system").is_none());
+        assert_eq!(claude["tools"][0]["cache_control"]["type"], "ephemeral");
+        // 最后一条消息也会拿到滚动缓存断点。
+        assert_eq!(claude["messages"][0]["content"][0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn cache_control_keeps_client_markers_and_does_not_duplicate() {
+        let input = json!({
+            "messages":[
+                {"role":"system","content":[
+                    {"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral"}},
+                    {"type":"text","text":"dynamic suffix"}
+                ]},
+                {"role":"user","content":"hello"}
+            ]
+        });
+        let claude = chat_to_claude(&input, "claude-upstream").unwrap();
+        assert_eq!(claude["system"][0]["cache_control"]["type"], "ephemeral");
+        // 客户端已在第一块打了断点，第二块不应被重复标记。
+        assert!(claude["system"][1].get("cache_control").is_none());
+        assert_eq!(claude["messages"][0]["content"][0]["cache_control"]["type"], "ephemeral");
     }
 
     #[test]

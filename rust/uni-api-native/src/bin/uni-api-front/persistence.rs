@@ -576,9 +576,9 @@ fn sqlite_cache_rates(
     include_model: bool,
 ) -> Result<Vec<(String, String, i64, i64)>, String> {
     let sql = if include_model {
-        "SELECT provider, model, COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(cached_tokens), 0) FROM request_stats WHERE timestamp >= datetime(?1, 'unixepoch') GROUP BY provider, model"
+        "SELECT provider, model, COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(cached_tokens), 0) FROM request_stats WHERE timestamp >= datetime(?1, 'unixepoch') AND request_id IN (SELECT request_id FROM channel_stats WHERE success = 1) GROUP BY provider, model"
     } else {
-        "SELECT provider, '', COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(cached_tokens), 0) FROM request_stats WHERE timestamp >= datetime(?1, 'unixepoch') GROUP BY provider"
+        "SELECT provider, '', COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(cached_tokens), 0) FROM request_stats WHERE timestamp >= datetime(?1, 'unixepoch') AND request_id IN (SELECT request_id FROM channel_stats WHERE success = 1) GROUP BY provider"
     };
     let mut statement = connection
         .prepare(sql)
@@ -856,9 +856,9 @@ async fn postgres_cache_rates(
     include_model: bool,
 ) -> Result<Vec<(String, String, i64, i64)>, String> {
     let sql = if include_model {
-        "SELECT provider, model, COALESCE(SUM(prompt_tokens), 0)::bigint, COALESCE(SUM(cached_tokens), 0)::bigint FROM request_stats WHERE timestamp >= NOW() - ($1::text || ' hours')::interval GROUP BY provider, model"
+        "SELECT provider, model, COALESCE(SUM(prompt_tokens), 0)::bigint, COALESCE(SUM(cached_tokens), 0)::bigint FROM request_stats WHERE timestamp >= NOW() - ($1::text || ' hours')::interval AND request_id IN (SELECT request_id FROM channel_stats WHERE success = TRUE) GROUP BY provider, model"
     } else {
-        "SELECT provider, ''::text, COALESCE(SUM(prompt_tokens), 0)::bigint, COALESCE(SUM(cached_tokens), 0)::bigint FROM request_stats WHERE timestamp >= NOW() - ($1::text || ' hours')::interval GROUP BY provider"
+        "SELECT provider, ''::text, COALESCE(SUM(prompt_tokens), 0)::bigint, COALESCE(SUM(cached_tokens), 0)::bigint FROM request_stats WHERE timestamp >= NOW() - ($1::text || ' hours')::interval AND request_id IN (SELECT request_id FROM channel_stats WHERE success = TRUE) GROUP BY provider"
     };
     let rows = client
         .query(sql, &[&hours.max(1)])
@@ -1026,6 +1026,7 @@ CREATE INDEX IF NOT EXISTS ix_channel_stats_provider ON channel_stats(provider);
 CREATE INDEX IF NOT EXISTS ix_channel_stats_model ON channel_stats(model);
 CREATE INDEX IF NOT EXISTS ix_channel_stats_provider_api_key ON channel_stats(provider_api_key);
 CREATE INDEX IF NOT EXISTS ix_channel_stats_timestamp ON channel_stats(timestamp);
+CREATE INDEX IF NOT EXISTS ix_channel_stats_request_id ON channel_stats(request_id);
 "#;
 
 const POSTGRES_SCHEMA: &str = r#"
@@ -1070,6 +1071,7 @@ CREATE INDEX IF NOT EXISTS ix_channel_stats_provider ON channel_stats(provider);
 CREATE INDEX IF NOT EXISTS ix_channel_stats_model ON channel_stats(model);
 CREATE INDEX IF NOT EXISTS ix_channel_stats_provider_api_key ON channel_stats(provider_api_key);
 CREATE INDEX IF NOT EXISTS ix_channel_stats_timestamp ON channel_stats(timestamp);
+CREATE INDEX IF NOT EXISTS ix_channel_stats_request_id ON channel_stats(request_id);
 "#;
 
 #[cfg(test)]

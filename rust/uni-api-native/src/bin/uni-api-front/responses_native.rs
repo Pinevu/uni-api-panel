@@ -1780,6 +1780,8 @@ fn usage_tokens(outcome: &Value) -> (i64, i64, i64, i64) {
         "prompt_cache_hit_tokens",
         "cache_read_input_tokens",
         "cachedContentTokenCount",
+        "cache_read_tokens",
+        "total_cached_tokens",
     ])
     .max(
         usage
