@@ -3245,6 +3245,7 @@ body.dark .btn-dark { background: #f2f2f7; color: #1c1c1e; border-color: #f2f2f7
         </div>
         <div class="models-toolbar-actions">
           <button class="mini-btn" id="chFetchBtn" onclick="fetchProviderModels()" title="从上游拉取模型列表">拉取</button>
+          <button class="mini-btn" id="chRecommendBtn" onclick="fillCurrentRecommendModels()" title="填入推荐模型列表">推荐</button>
           <button class="mini-btn" onclick="batchAddAliasPrefix()" title="为已选模型批量加别名前缀">前缀</button>
           <button class="mini-btn" onclick="clearAllAliases()" title="清空别名">清别名</button>
           <button class="mini-btn" onclick="toggleAllChModels()" title="全选 / 反选">全选</button>
@@ -4911,9 +4912,14 @@ function syncAuthModeUI() {
     if (el) el.style.display = isAnyOauth ? 'none' : '';
   });
 
+  const fetchBtn = $('#chFetchBtn');
   if (isAntigravity) {
     if (!$('#chUrl').value.trim() || $('#chUrl').value.includes('chatgpt.com')) {
       $('#chUrl').value = 'https://daily-cloudcode-pa.googleapis.com';
+    }
+    if (fetchBtn) {
+      fetchBtn.textContent = '填入推荐';
+      fetchBtn.title = '填入 Antigravity 官方推荐模型列表';
     }
     renderOauthStatus();
     if (!chOauthAccounts.length && !chOauthState.refresh_token) {
@@ -4924,10 +4930,19 @@ function syncAuthModeUI() {
     if (!$('#chUrl').value.trim() || $('#chUrl').value.includes('googleapis.com')) {
       $('#chUrl').value = 'https://chatgpt.com/backend-api';
     }
+    if (fetchBtn) {
+      fetchBtn.textContent = '填入推荐';
+      fetchBtn.title = '填入 Codex 官方推荐模型列表';
+    }
     renderCodexOauthStatus();
     if (!chCodexOauthState.refresh_token) {
       applyCodexOauthUrl(chCodexOauthState.auth_url || '');
       prepareCodexOauthUrl(false);
+    }
+  } else {
+    if (fetchBtn) {
+      fetchBtn.textContent = '拉取';
+      fetchBtn.title = '从上游拉取模型列表';
     }
   }
 }
@@ -5127,6 +5142,7 @@ function fillAntigravityModels(silent) {
   chSelectionInitialized = true;
   renderChChips();
   updateManualTextarea();
+  $('#chFetchStatus').innerHTML = `<span style="color:var(--success)">✓ 已填入 ${defaults.length} 个 Antigravity 推荐模型</span>`;
   if (!silent) showToast(`已填入 ${defaults.length} 个推荐模型`);
 }
 
@@ -5263,7 +5279,28 @@ function fillCodexModels(silent) {
   chSelectionInitialized = true;
   renderChChips();
   updateManualTextarea();
+  $('#chFetchStatus').innerHTML = `<span style="color:var(--success)">✓ 已填入 ${defaults.length} 个 Codex 推荐模型</span>`;
   if (!silent) showToast(`已填入 ${defaults.length} 个推荐 Codex 模型`);
+}
+
+function fillCurrentRecommendModels(silent) {
+  const mode = $('#chAuthMode').value;
+  if (mode === 'antigravity_oauth') {
+    fillAntigravityModels(silent);
+  } else if (mode === 'codex_oauth') {
+    fillCodexModels(silent);
+  } else {
+    const defaults = [
+      'gpt-4o', 'gpt-4o-mini', 'claude-sonnet-4-6', 'deepseek-chat', 'deepseek-reasoner'
+    ];
+    chAllModels = [...new Set([...chAllModels, ...defaults])].sort();
+    defaults.forEach(m => chSelectedSet.add(m));
+    chSelectionInitialized = true;
+    renderChChips();
+    updateManualTextarea();
+    $('#chFetchStatus').innerHTML = `<span style="color:var(--success)">✓ 已填入 ${defaults.length} 个通用推荐模型</span>`;
+    if (!silent) showToast(`已填入 ${defaults.length} 个通用推荐模型`);
+  }
 }
 
 function closeChModal() {
@@ -5444,13 +5481,19 @@ function resolveModelsUrl(rawUrl) {
 }
 
 async function fetchProviderModels() {
+  const mode = $('#chAuthMode').value;
+  if (mode === 'antigravity_oauth') {
+    fillAntigravityModels(false);
+    return;
+  }
+  if (mode === 'codex_oauth') {
+    fillCodexModels(false);
+    return;
+  }
+
   const url = $('#chUrl').value.trim();
   const key = $('#chKey').value.trim();
   if (!url) return showToast('请先填写 API Base URL');
-  if ($('#chAuthMode').value === 'antigravity_oauth') {
-    showToast('OAuth 渠道请点「填入推荐模型」，或稍后在模型列表手动补充');
-    return;
-  }
 
   $('#chFetchBtn').disabled = true;
   $('#chFetchStatus').innerHTML = `<span style="color:var(--primary)">⏳ 正在连接上游拉取模型列表...</span>`;
